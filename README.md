@@ -1,0 +1,2 @@
+# ZST
+Zyad Systematic Trading
