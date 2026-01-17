@@ -1,0 +1,11 @@
+
+# Generated backtest output files
+fx_equity_curve.csv
+fx_positions.csv
+fx_returns.csv
+fx_signal_contributions.csv
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
