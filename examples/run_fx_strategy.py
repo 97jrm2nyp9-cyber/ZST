@@ -47,13 +47,13 @@ def run_fx_strategy_backtest():
         mean_reversion_window=15,        # Faster mean reversion
         mean_reversion_std=1.5,          # Tighter bands for more signals
 
-        # Risk management (more aggressive for higher returns)
-        target_volatility=0.12,          # 12% target volatility (higher)
-        max_gross_leverage=4.0,          # 400% gross (more aggressive)
-        max_net_exposure=0.40,           # 40% max directional exposure
-        max_position_size=0.20,          # 20% per pair
-        max_currency_exposure=0.60,      # 60% per currency
-        max_drawdown=0.20,               # 20% circuit breaker (more tolerance)
+        # Risk management (optimized for higher Sharpe)
+        target_volatility=0.15,          # 15% target vol (higher for better returns)
+        max_gross_leverage=5.0,          # 500% gross (FX can handle this)
+        max_net_exposure=0.50,           # 50% max directional exposure
+        max_position_size=0.25,          # 25% per pair (allow concentrated bets)
+        max_currency_exposure=0.70,      # 70% per currency
+        max_drawdown=0.18,               # 18% circuit breaker
 
         # Transaction costs (FX has tight spreads)
         spread_bps=1.5,                  # 1.5 bps spread (better execution)
@@ -65,7 +65,13 @@ def run_fx_strategy_backtest():
             'momentum': 0.20,            # 20% momentum
             'mean_reversion': 0.10,      # 10% mean reversion (underperforming)
             'cross_rate': 0.20           # 20% cross-rate arbitrage
-        }
+        },
+
+        # Sharpe enhancement parameters (NEW)
+        conviction_threshold=0.12,       # Only trade signals above this strength
+        adaptive_lookback=40,            # Days for adaptive weighting (faster adaptation)
+        position_smoothing=0.15,         # Light smoothing to reduce turnover without lag
+        correlation_lookback=40          # Days for correlation estimation
     )
 
     # Generate synthetic FX data for backtesting
@@ -91,15 +97,15 @@ def run_fx_strategy_backtest():
     strategy = FxTradingStrategy(config)
     print()
 
-    # Run backtest
-    print("Running backtest...")
+    # Run backtest with Sharpe-based weighting (best performance)
+    print("Running backtest with Sharpe-based signal weighting...")
     print("-" * 60)
     results = strategy.backtest(
         prices=prices,
         interest_rates=interest_rates,
         volatilities=volatilities,
         initial_capital=1_000_000,  # $1M starting capital
-        combination_method='custom'  # Use configured signal weights
+        combination_method='sharpe'  # Use Sharpe-weighted signals for best performance
     )
     print()
 
@@ -120,7 +126,7 @@ def run_fx_strategy_backtest():
     print("Testing different signal combination methods...")
     print("-" * 60)
 
-    methods = ['equal', 'sharpe', 'inverse_vol', 'custom']
+    methods = ['equal', 'sharpe', 'inverse_vol', 'custom', 'adaptive']
     comparison = {}
 
     for method in methods:

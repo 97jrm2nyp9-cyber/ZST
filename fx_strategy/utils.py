@@ -39,6 +39,12 @@ class FxConfig:
     # Signal weights
     signal_weights: Dict[str, float] = None
 
+    # Sharpe enhancement parameters
+    conviction_threshold: float = 0.15  # Min signal strength to trade
+    adaptive_lookback: int = 60  # Days for adaptive signal weighting
+    position_smoothing: float = 0.3  # Position smoothing factor (0-1)
+    correlation_lookback: int = 60  # Days for correlation estimation
+
     def __post_init__(self):
         if self.currency_pairs is None:
             # G10 major pairs

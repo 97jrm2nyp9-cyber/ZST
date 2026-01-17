@@ -87,7 +87,7 @@ class FxTradingStrategy:
         interest_rates: pd.DataFrame,
         volatilities: pd.DataFrame,
         initial_capital: float = 1000000,
-        combination_method: str = 'custom'
+        combination_method: str = 'sharpe'
     ) -> Dict:
         """
         Run backtest of the forex trading strategy.
@@ -157,11 +157,13 @@ class FxTradingStrategy:
             # Create DataFrame for single-row signal
             signal_df = pd.DataFrame([signal], columns=signal.index)
 
-            # Calculate positions
+            # Calculate positions with correlation-aware vol targeting
+            current_prices = prices.iloc[:i]
             positions = self.risk_manager.calculate_position_sizes(
                 signal_df,
                 current_volatility,
-                current_equity=equity / initial_capital
+                current_equity=equity / initial_capital,
+                prices=current_prices
             )
 
             # Get positions as Series
