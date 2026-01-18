@@ -1,25 +1,25 @@
-# ZST - Statistical Arbitrage Strategy Framework
+# ZST - Statistical Arbitrage Trading Strategy
 
-A production-grade Python framework for building market-neutral statistical arbitrage strategies targeting 2+ Sharpe ratio for US equities.
+A production-ready statistical arbitrage trading strategy targeting 2+ Sharpe ratio.
 
-## Overview
+## Features
 
-This framework implements a comprehensive stat arb strategy combining multiple alpha sources:
+- **Multiple Alpha Sources**: Combines 4 uncorrelated signal generators
+  - Pairs trading (cointegration-based)
+  - Factor residual mean reversion
+  - Cross-sectional mean reversion
+  - Eigenportfolio deviation trading
 
-1. **Pairs Trading**: Cointegration-based mean reversion between related securities
-2. **Factor Residual Reversion**: Alpha from residuals after factor exposure neutralization
-3. **Cross-Sectional Mean Reversion**: Short-term reversal within sectors
-4. **Eigenportfolio Deviation**: PCA-based statistical arbitrage
+- **Risk Management**: Comprehensive risk controls
+  - Factor neutralization
+  - Regime detection and adaptation
+  - Position limits and exposure constraints
+  - Drawdown monitoring
 
-## Strategy Philosophy
-
-To achieve a 2+ Sharpe ratio, the strategy follows key principles:
-
-- **Multiple Uncorrelated Alphas**: Combining 4 signal sources increases Sharpe by diversification
-- **Rigorous Factor Neutralization**: Eliminate uncompensated market/sector/style exposures
-- **Transaction Cost Awareness**: Optimize for net returns after realistic execution costs
-- **Adaptive Risk Management**: Regime detection and drawdown controls
-- **Robust Estimation**: Regularization and shrinkage to avoid overfitting
+- **Real Market Data**: Fetch live data from Yahoo Finance
+  - Supports custom ticker lists
+  - Default large-cap US stock universe
+  - Automatic data validation and cleaning
 
 ## Installation
 
@@ -29,204 +29,96 @@ pip install -r requirements.txt
 
 ## Quick Start
 
+### Show Top 10 Positions (Synthetic Data)
+
+```bash
+python show_top_positions.py
+```
+
+### Show Top 10 Positions (Real Market Data)
+
+```bash
+# Use default large-cap stocks (100 stocks, 500 days)
+python show_top_positions.py --real
+
+# Customize number of stocks and history
+python show_top_positions.py --real --stocks 50 --days 252
+```
+
+## Using Real Market Data
+
+### Command Line
+
+```bash
+# 20 stocks with 1 year of data
+python show_top_positions.py --real --stocks 20 --days 252
+
+# 100 stocks with 2 years of data
+python show_top_positions.py --real --stocks 100 --days 504
+```
+
+### Programmatic Usage
+
 ```python
+from stat_arb.market_data import fetch_market_data
 from stat_arb.strategy import create_strategy
-from stat_arb.utils import generate_synthetic_data
 
-# Generate synthetic data for testing
-prices, volumes, sectors, market_caps = generate_synthetic_data(
-    n_stocks=200, n_days=756
+# Fetch real market data
+prices, volumes, sectors, market_caps = fetch_market_data(
+    n_stocks=50,
+    lookback_days=252,
 )
 
-# Create strategy targeting 2 Sharpe
+# Create and run strategy
 strategy = create_strategy(target_sharpe=2.0, target_vol=0.08)
-
-# Run backtest
-result = strategy.run_backtest(prices, volumes, sectors, market_caps)
-
-# View results
-print(f"Sharpe Ratio: {result.metrics['sharpe_ratio']:.2f}")
-print(f"Annual Return: {result.metrics['annualized_return']:.2%}")
-print(f"Max Drawdown: {result.metrics['max_drawdown']:.2%}")
-```
-
-## Module Structure
-
-```
-stat_arb/
-├── __init__.py          # Package initialization
-├── signals.py           # Alpha signal generators
-├── risk.py              # Risk management and factor models
-├── portfolio.py         # Portfolio optimization
-├── execution.py         # Execution and market impact models
-├── backtest.py          # Backtesting engine
-├── strategy.py          # Main strategy class
-└── utils.py             # Utility functions
-```
-
-## Signal Generation
-
-### PairsSignal
-Identifies cointegrated pairs using Engle-Granger test and trades mean reversion of spreads.
-
-```python
-from stat_arb.signals import PairsSignal, SignalConfig
-
-config = SignalConfig(lookback_window=60, zscore_threshold=2.0)
-pairs_signal = PairsSignal(config, sector_constrained=True)
-signal = pairs_signal.generate(prices, volumes, sectors=sectors)
-```
-
-### FactorResidualSignal
-Extracts residual returns after removing factor exposures (market, size, value, momentum, volatility).
-
-### CrossSectionalMeanReversion
-Short-term reversal signal within sectors, volume-adjusted for microstructure effects.
-
-### EigenportfolioSignal
-PCA-based signal trading deviations from statistical factor structure.
-
-## Risk Management
-
-### Factor Neutralization
-```python
-from stat_arb.risk import RiskManager, RiskLimits
-
-limits = RiskLimits(
-    max_position_size=0.02,
-    max_net_exposure=0.05,
-    max_sector_exposure=0.10,
-    max_drawdown=0.10
-)
-
-risk_manager = RiskManager(limits=limits)
-neutralized = risk_manager.neutralize_factors(raw_signal, returns, sectors)
-```
-
-### Regime Detection
-Automatically detects market regimes (low vol, normal, high vol, crisis) and adjusts exposure.
-
-### Drawdown Control
-Circuit breaker logic reduces risk when drawdown exceeds thresholds.
-
-## Portfolio Optimization
-
-Mean-variance optimization with transaction cost penalties:
-
-```python
-from stat_arb.portfolio import PortfolioOptimizer, OptimizationConfig
-
-config = OptimizationConfig(
-    risk_aversion=1.0,
-    tcost_aversion=5.0,
-    max_turnover=0.30
-)
-
-optimizer = PortfolioOptimizer(config)
-positions, diagnostics = optimizer.optimize(
-    alpha=signal,
-    covariance=cov,
-    current_positions=current,
-    prices=prices,
-    adv=adv,
-    volatility=vol
-)
-```
-
-## Execution Modeling
-
-Includes Almgren-Chriss optimal execution and square-root market impact models:
-
-```python
-from stat_arb.execution import ExecutionModel, ExecutionAlgorithm
-
-exec_model = ExecutionModel(default_algorithm=ExecutionAlgorithm.IS)
-report = exec_model.execute_order(
-    ticker="AAPL",
-    shares=10000,
-    side="buy",
-    price=150.0,
-    adv=50_000_000,
-    volatility=0.02
-)
-print(f"Slippage: {report.slippage_bps:.1f} bps")
-```
-
-## Performance Targets
-
-| Metric | Target | Rationale |
-|--------|--------|-----------|
-| Sharpe Ratio | 2.0+ | Combines 4 uncorrelated signals |
-| Volatility | 8% | Conservative for market-neutral |
-| Max Drawdown | <10% | Strict risk controls |
-| Net Exposure | <5% | Market neutral mandate |
-| Turnover | <25%/day | Transaction cost management |
-
-## Example Output
-
-```
-PERFORMANCE REPORT
-==================================================
-
-RETURNS
-  Total Return:        48.32%
-  Annualized Return:   16.12%
-  Annualized Vol:      7.89%
-
-RISK-ADJUSTED
-  Sharpe Ratio:        2.04
-  Sortino Ratio:       3.21
-  Calmar Ratio:        2.15
-
-DRAWDOWN
-  Max Drawdown:        -7.51%
-
-TRADE STATISTICS
-  Hit Rate:            53.2%
-  Profit Factor:       1.42
-```
-
-## Key Design Decisions
-
-### Why Multiple Signal Sources?
-- Correlation between signals ~0.2-0.4
-- Combined Sharpe ≈ individual Sharpe × √(effective N)
-- With 4 signals at 1.0 Sharpe each and low correlation → ~2.0 combined
-
-### Why Factor Neutralization?
-- Factor returns are volatile and unpredictable
-- Removing factor exposure reduces variance without losing alpha
-- Results in higher Sharpe from idiosyncratic returns
-
-### Why Transaction Cost Optimization?
-- Stat arb alpha decays quickly (half-life ~days)
-- But excessive trading erodes returns
-- Optimal trade-off found via convex optimization
-
-## Live Trading Integration
-
-```python
-# Daily position generation for production
-strategy = create_strategy(target_sharpe=2.0)
-
 positions, diagnostics = strategy.generate_positions(
-    prices=live_prices,
-    volumes=live_volumes,
+    prices=prices,
+    volumes=volumes,
     sectors=sectors,
     market_caps=market_caps,
-    current_positions=current_positions
 )
 
-# Execute through your broker
-for ticker, target_weight in positions.items():
-    current = current_positions.get(ticker, 0)
-    trade = target_weight - current
-    if abs(trade) > 0.001:
-        execute_trade(ticker, trade)
+# Display results
+print(f"Top Long: {positions.nlargest(10)}")
+print(f"Top Short: {positions.nsmallest(10)}")
 ```
 
-## References
+### Custom Ticker Lists
 
-- Avellaneda, M. & Lee, J. (2010). "Statistical Arbitrage in the U.S. Equities Market"
-- Almgren, R. & Chriss, N. (2000). "Optimal Execution of Portfolio Transactions"
-- Khandani, A. & Lo, A. (2007). "What Happened to the Quants in August 2007?"
+```python
+from stat_arb.market_data import fetch_market_data
+
+# Define your own universe
+my_tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NVDA']
+
+prices, volumes, sectors, market_caps = fetch_market_data(
+    tickers=my_tickers,
+    lookback_days=252,
+)
+```
+
+## Network Requirements
+
+When using real market data (`--real` flag), the system requires:
+- Internet connection to fetch data from Yahoo Finance
+- Access to `finance.yahoo.com` (port 443)
+
+If network access is restricted, the system will automatically fall back to synthetic data.
+
+## Examples
+
+```bash
+# Run with synthetic data
+python show_top_positions.py
+
+# Run with 30 real stocks
+python show_top_positions.py --real --stocks 30 --days 252
+```
+
+## Performance Target
+
+- **Sharpe Ratio**: 2.0+
+- **Volatility**: 8% annualized
+- **Returns**: 16%+ annualized
+- **Max Drawdown**: <10%
+- **Market Neutrality**: Net exposure <5%

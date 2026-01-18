@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """
 Show Top 10 Stat Arb Positions
+
+Usage:
+    python show_top_positions.py                    # Use synthetic data
+    python show_top_positions.py --real             # Use real market data (S&P 500)
+    python show_top_positions.py --real --stocks 50 # Real data with 50 stocks
 """
 
 import sys
 import os
+import argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
@@ -12,20 +18,45 @@ import pandas as pd
 
 from stat_arb.strategy import StatArbStrategy, StrategyConfig, create_strategy
 from stat_arb.utils import generate_synthetic_data
+from stat_arb.market_data import fetch_market_data
+
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='Show top 10 stat arb positions')
+parser.add_argument('--real', action='store_true', help='Use real market data from Yahoo Finance')
+parser.add_argument('--stocks', type=int, default=100, help='Number of stocks to include (default: 100)')
+parser.add_argument('--days', type=int, default=500, help='Days of historical data (default: 500)')
+args = parser.parse_args()
 
 print("=" * 70)
 print("STATISTICAL ARBITRAGE PORTFOLIO - TOP 10 POSITIONS")
 print("=" * 70)
 print()
 
-# Generate data
-print("Generating market data...")
-prices, volumes, sectors, market_caps = generate_synthetic_data(
-    n_stocks=200, n_days=300, seed=123
-)
+# Get market data
+if args.real:
+    print("Fetching REAL market data from Yahoo Finance...")
+    print(f"  Stocks: {args.stocks}")
+    print(f"  History: {args.days} days")
+    print()
+    try:
+        prices, volumes, sectors, market_caps = fetch_market_data(
+            n_stocks=args.stocks,
+            lookback_days=args.days,
+        )
+    except Exception as e:
+        print(f"ERROR: Failed to fetch real market data: {e}")
+        print("Falling back to synthetic data...")
+        prices, volumes, sectors, market_caps = generate_synthetic_data(
+            n_stocks=200, n_days=300, seed=123
+        )
+else:
+    print("Using SYNTHETIC market data...")
+    prices, volumes, sectors, market_caps = generate_synthetic_data(
+        n_stocks=200, n_days=300, seed=123
+    )
+    print(f"  Data range: {prices.index[0]} to {prices.index[-1]}")
+    print(f"  Universe: {len(prices.columns)} stocks")
 
-print(f"  Data range: {prices.index[0]} to {prices.index[-1]}")
-print(f"  Universe: {len(prices.columns)} stocks")
 print()
 
 # Initialize strategy
