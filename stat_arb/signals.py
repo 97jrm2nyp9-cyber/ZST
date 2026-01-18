@@ -453,6 +453,10 @@ class FactorResidualSignal(BaseSignal):
         F = recent_factors.values
         F_with_const = np.column_stack([np.ones(len(F)), F])
 
+        # Factor matrix for full period
+        F_full = factors.values
+        F_full_with_const = np.column_stack([np.ones(len(F_full)), F_full])
+
         # Ridge regression parameter
         lambda_ridge = 0.01 * np.trace(F_with_const.T @ F_with_const) / F_with_const.shape[1]
 
@@ -482,7 +486,7 @@ class FactorResidualSignal(BaseSignal):
                 )
 
                 # Calculate residuals for full period
-                full_residuals = returns[ticker].values - F_with_const @ beta
+                full_residuals = returns[ticker].values - F_full_with_const @ beta
                 residuals[ticker] = full_residuals
             except np.linalg.LinAlgError:
                 residuals[ticker] = np.nan
