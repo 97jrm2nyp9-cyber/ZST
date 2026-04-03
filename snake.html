@@ -3,275 +3,599 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Snake</title>
+<title>ARCADE</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #0a0a0a;
-    color: #00ff41;
-    font-family: 'Courier New', monospace;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    overflow: hidden;
-    touch-action: none;
-  }
-  h1 {
-    font-size: 1.4rem;
-    letter-spacing: 6px;
-    margin-bottom: 8px;
-    color: #00ff41;
-    text-shadow: 0 0 10px #00ff41;
-  }
-  #scoreboard {
-    display: flex;
-    gap: 30px;
-    margin-bottom: 10px;
-    font-size: 0.85rem;
-    letter-spacing: 2px;
-  }
-  #scoreboard span { color: #aaa; }
-  #scoreboard b { color: #00ff41; }
-  canvas {
-    border: 2px solid #00ff41;
-    box-shadow: 0 0 20px #00ff4155, 0 0 40px #00ff4122;
-    display: block;
-  }
-  #controls {
-    margin-top: 16px;
-    display: grid;
-    grid-template-columns: repeat(3, 56px);
-    grid-template-rows: repeat(2, 56px);
-    gap: 6px;
-  }
-  .btn {
-    background: #111;
-    border: 1.5px solid #00ff4188;
-    border-radius: 8px;
-    color: #00ff41;
-    font-size: 1.3rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    user-select: none;
-    -webkit-tap-highlight-color: transparent;
-    transition: background 0.1s;
-  }
-  .btn:active { background: #00ff4122; }
-  #btn-up    { grid-column: 2; grid-row: 1; }
-  #btn-left  { grid-column: 1; grid-row: 2; }
-  #btn-down  { grid-column: 2; grid-row: 2; }
-  #btn-right { grid-column: 3; grid-row: 2; }
-  #overlay {
-    position: fixed;
-    inset: 0;
-    background: #0a0a0aee;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    z-index: 10;
-  }
-  #overlay h2 {
-    font-size: 1.6rem;
-    letter-spacing: 4px;
-    color: #00ff41;
-    text-shadow: 0 0 15px #00ff41;
-  }
-  #overlay p { color: #aaa; font-size: 0.9rem; letter-spacing: 2px; }
-  #overlay .final-score { font-size: 1.1rem; color: #00ff41; }
-  #start-btn {
-    margin-top: 8px;
-    background: #00ff4122;
-    border: 2px solid #00ff41;
-    border-radius: 10px;
-    color: #00ff41;
-    font-family: 'Courier New', monospace;
-    font-size: 1rem;
-    letter-spacing: 3px;
-    padding: 12px 30px;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-  #start-btn:active { background: #00ff4144; }
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+  background:#0a0a0a;color:#00ff41;
+  font-family:'Courier New',monospace;
+  display:flex;flex-direction:column;align-items:center;
+  justify-content:flex-start;min-height:100vh;
+  padding:8px 0 4px;overflow:hidden;touch-action:none;
+}
+h1{font-size:1.2rem;letter-spacing:6px;margin-bottom:6px;text-shadow:0 0 10px #00ff41;}
+
+/* Selector */
+#selector{display:flex;gap:10px;margin-bottom:6px;}
+.sel-btn{
+  background:#111;border:2px solid #333;border-radius:20px;
+  color:#555;font-family:'Courier New',monospace;
+  font-size:0.8rem;letter-spacing:2px;padding:5px 14px;
+  cursor:pointer;-webkit-tap-highlight-color:transparent;transition:all 0.2s;
+}
+.sel-btn.active{border-color:#00ff41;color:#00ff41;box-shadow:0 0 10px #00ff4155;}
+
+/* Scoreboard */
+#scoreboard{display:flex;gap:18px;margin-bottom:6px;font-size:0.78rem;letter-spacing:2px;min-height:18px;}
+#scoreboard span{color:#aaa;}
+#scoreboard b{color:#00ff41;}
+
+/* Canvas */
+canvas{border:2px solid #00ff41;box-shadow:0 0 20px #00ff4155,0 0 40px #00ff4122;display:block;}
+
+/* Snake d-pad */
+#snake-controls{
+  margin-top:10px;display:grid;
+  grid-template-columns:repeat(3,54px);grid-template-rows:repeat(2,54px);gap:5px;
+}
+.btn{
+  background:#111;border:1.5px solid #00ff4188;border-radius:8px;
+  color:#00ff41;font-size:1.3rem;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  user-select:none;-webkit-tap-highlight-color:transparent;
+}
+.btn:active{background:#00ff4122;}
+#btn-up{grid-column:2;grid-row:1;}
+#btn-left{grid-column:1;grid-row:2;}
+#btn-down{grid-column:2;grid-row:2;}
+#btn-right{grid-column:3;grid-row:2;}
+
+/* Mario controls */
+#mario-controls{margin-top:10px;display:none;gap:10px;align-items:center;}
+.mbtn{
+  background:#111;border:1.5px solid #e5393577;border-radius:10px;
+  color:#e53935;font-size:1.4rem;cursor:pointer;user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  display:flex;align-items:center;justify-content:center;
+}
+.mbtn:active{background:#e5393522;}
+#mbtn-left,#mbtn-right{width:70px;height:64px;}
+#mbtn-jump{width:84px;height:64px;font-size:0.85rem;letter-spacing:1px;border-color:#ffd70077;color:#ffd700;}
+
+/* Overlay */
+#overlay{
+  position:fixed;inset:0;background:#0a0a0aee;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:12px;z-index:10;
+}
+#overlay h2{font-size:1.5rem;letter-spacing:4px;color:#00ff41;text-shadow:0 0 15px #00ff41;}
+#overlay p{color:#aaa;font-size:0.82rem;letter-spacing:2px;text-align:center;}
+#overlay b{color:#00ff41;}
+.ov-btn{
+  margin-top:6px;background:#00ff4122;border:2px solid #00ff41;border-radius:10px;
+  color:#00ff41;font-family:'Courier New',monospace;font-size:0.95rem;
+  letter-spacing:3px;padding:11px 26px;cursor:pointer;-webkit-tap-highlight-color:transparent;
+}
+.ov-btn:active{background:#00ff4144;}
 </style>
 </head>
 <body>
 
-<h1>SNAKE</h1>
-<div id="scoreboard">
-  <div><span>SCORE </span><b id="score-val">0</b></div>
-  <div><span>BEST </span><b id="best-val">0</b></div>
+<h1>ARCADE</h1>
+
+<div id="selector">
+  <button class="sel-btn active" id="sel-snake">🐍 SNAKE</button>
+  <button class="sel-btn" id="sel-mario">🍄 MARIO</button>
 </div>
+
+<div id="scoreboard"></div>
 <canvas id="c"></canvas>
-<div id="controls">
+
+<div id="snake-controls">
   <button class="btn" id="btn-up">▲</button>
   <button class="btn" id="btn-left">◀</button>
   <button class="btn" id="btn-down">▼</button>
   <button class="btn" id="btn-right">▶</button>
 </div>
 
-<div id="overlay">
-  <h2>SNAKE</h2>
-  <p>SWIPE OR USE BUTTONS</p>
-  <button id="start-btn">▶ START</button>
+<div id="mario-controls">
+  <button class="mbtn" id="mbtn-left">◀</button>
+  <button class="mbtn" id="mbtn-jump">JUMP</button>
+  <button class="mbtn" id="mbtn-right">▶</button>
 </div>
 
+<div id="overlay"></div>
+
 <script>
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
-const overlay = document.getElementById('overlay');
-const scoreEl = document.getElementById('score-val');
-const bestEl = document.getElementById('best-val');
-
-// Responsive canvas size
-const SIZE = Math.min(window.innerWidth - 20, window.innerHeight - 260, 360);
-const GRID = 20;
-const CELL = Math.floor(SIZE / GRID);
-canvas.width = canvas.height = CELL * GRID;
-
-let snake, dir, nextDir, food, score, best, loop, speed, growing;
-best = parseInt(localStorage.getItem('snakeBest') || '0');
-bestEl.textContent = best;
-
-function init() {
-  snake = [{x:10, y:10}, {x:9, y:10}, {x:8, y:10}];
-  dir = {x:1, y:0};
-  nextDir = {x:1, y:0};
-  score = 0;
-  speed = 150;
-  growing = 0;
-  scoreEl.textContent = 0;
-  placeFood();
+// roundRect polyfill for older Safari
+if(!CanvasRenderingContext2D.prototype.roundRect){
+  CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){
+    this.beginPath();this.moveTo(x+r,y);this.lineTo(x+w-r,y);
+    this.quadraticCurveTo(x+w,y,x+w,y+r);this.lineTo(x+w,y+h-r);
+    this.quadraticCurveTo(x+w,y+h,x+w-r,y+h);this.lineTo(x+r,y+h);
+    this.quadraticCurveTo(x,y+h,x,y+h-r);this.lineTo(x,y+r);
+    this.quadraticCurveTo(x,y,x+r,y);this.closePath();
+  };
 }
 
-function placeFood() {
-  let pos;
-  do {
-    pos = {x: Math.floor(Math.random()*GRID), y: Math.floor(Math.random()*GRID)};
-  } while (snake.some(s => s.x===pos.x && s.y===pos.y));
-  food = pos;
-}
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+const overlay=document.getElementById('overlay');
+const scoreboard=document.getElementById('scoreboard');
+const CW=Math.min(window.innerWidth-20,380);
 
-function step() {
-  dir = nextDir;
-  const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+// =====================
+// SNAKE
+// =====================
+const Snake={
+  tid:null, GRID:20, CELL:0,
+  snake:[],dir:{x:1,y:0},nextDir:{x:1,y:0},
+  food:null,score:0,best:0,speed:150,
 
-  // Wall collision
-  if (head.x < 0 || head.x >= GRID || head.y < 0 || head.y >= GRID) return gameOver();
-  // Self collision
-  if (snake.some(s => s.x===head.x && s.y===head.y)) return gameOver();
-
-  snake.unshift(head);
-
-  if (head.x === food.x && head.y === food.y) {
-    score++;
-    scoreEl.textContent = score;
-    if (score > best) { best = score; bestEl.textContent = best; localStorage.setItem('snakeBest', best); }
-    placeFood();
-    // Speed up every 5 points
-    if (score % 5 === 0 && speed > 60) speed = Math.max(60, speed - 10);
-    clearInterval(loop);
-    loop = setInterval(step, speed);
-  } else {
-    snake.pop();
+  init(){
+    this.CELL=Math.floor(CW/this.GRID);
+    canvas.width=canvas.height=this.CELL*this.GRID;
+    this.best=+(localStorage.getItem('snakeBest')||0);
+  },
+  reset(){
+    this.init();
+    this.snake=[{x:10,y:10},{x:9,y:10},{x:8,y:10}];
+    this.dir={x:1,y:0};this.nextDir={x:1,y:0};
+    this.score=0;this.speed=150;
+    this.placeFood();this.hud();
+  },
+  hud(){
+    scoreboard.innerHTML=`<div><span>SCORE </span><b>${this.score}</b></div><div><span>BEST </span><b>${this.best}</b></div>`;
+  },
+  showStart(){
+    overlay.innerHTML=`<h2>SNAKE</h2><p>SWIPE OR TAP ARROWS</p><button class="ov-btn" id="ob">▶ START</button>`;
+    overlay.style.display='flex';
+    document.getElementById('ob').onclick=()=>this.begin();
+  },
+  begin(){
+    overlay.style.display='none';
+    this.draw();
+    this.tid=setInterval(()=>this.step(),this.speed);
+  },
+  stop(){clearInterval(this.tid);this.tid=null;},
+  placeFood(){
+    let p;
+    do{p={x:Math.floor(Math.random()*this.GRID),y:Math.floor(Math.random()*this.GRID)};}
+    while(this.snake.some(s=>s.x===p.x&&s.y===p.y));
+    this.food=p;
+  },
+  step(){
+    this.dir=this.nextDir;
+    const h={x:this.snake[0].x+this.dir.x,y:this.snake[0].y+this.dir.y};
+    if(h.x<0||h.x>=this.GRID||h.y<0||h.y>=this.GRID)return this.over();
+    if(this.snake.some(s=>s.x===h.x&&s.y===h.y))return this.over();
+    this.snake.unshift(h);
+    if(h.x===this.food.x&&h.y===this.food.y){
+      this.score++;
+      if(this.score>this.best){this.best=this.score;localStorage.setItem('snakeBest',this.best);}
+      this.placeFood();this.hud();
+      if(this.score%5===0&&this.speed>60){
+        this.speed=Math.max(60,this.speed-10);
+        clearInterval(this.tid);this.tid=setInterval(()=>this.step(),this.speed);
+      }
+    }else{this.snake.pop();}
+    this.draw();
+  },
+  draw(){
+    const{CELL,GRID}=this;
+    ctx.fillStyle='#0a0a0a';ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle='#1a1a1a';
+    for(let x=0;x<GRID;x++)for(let y=0;y<GRID;y++)
+      ctx.fillRect(x*CELL+CELL/2-1,y*CELL+CELL/2-1,2,2);
+    ctx.shadowBlur=15;ctx.shadowColor='#ff4444';ctx.fillStyle='#ff4444';
+    ctx.beginPath();ctx.arc(this.food.x*CELL+CELL/2,this.food.y*CELL+CELL/2,CELL/2-2,0,Math.PI*2);ctx.fill();
+    ctx.shadowBlur=0;
+    this.snake.forEach((s,i)=>{
+      const r=1-(i/this.snake.length)*0.5;
+      ctx.shadowBlur=i===0?12:0;ctx.shadowColor='#00ff41';
+      ctx.fillStyle=i===0?'#00ff41':`rgba(0,${Math.floor(255*r)},${Math.floor(65*r)},1)`;
+      const p=i===0?1:2;
+      ctx.beginPath();ctx.roundRect(s.x*CELL+p,s.y*CELL+p,CELL-p*2,CELL-p*2,3);ctx.fill();
+      ctx.shadowBlur=0;
+    });
+  },
+  over(){
+    this.stop();
+    overlay.innerHTML=`<h2>GAME OVER</h2><p>SCORE <b>${this.score}</b></p><p>BEST <b>${this.best}</b></p><button class="ov-btn" id="ob">▶ RETRY</button>`;
+    overlay.style.display='flex';
+    document.getElementById('ob').onclick=()=>{this.reset();this.begin();};
+  },
+  setDir(x,y){
+    if(x!==0&&this.dir.x!==0)return;
+    if(y!==0&&this.dir.y!==0)return;
+    this.nextDir={x,y};
   }
+};
 
-  draw();
-}
+// =====================
+// MARIO
+// =====================
+const Mario={
+  running:false,raf:null,
+  keys:{left:false,right:false,jump:false},
+  CW,CH:Math.floor(CW*0.62),
+  WORLD_W:3200,
+  score:0,best:0,level:1,
+  player:null,platforms:[],coins:[],goombas:[],cameraX:0,
+  flagX:0,flagY:0,flagH:140,flagDone:false,
+  clouds:[],
 
-function draw() {
-  // Background
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  init(){
+    canvas.width=this.CW;canvas.height=this.CH;
+    this.best=+(localStorage.getItem('marioBest')||0);
+  },
+  reset(){
+    this.init();
+    this.score=0;this.level=1;
+    this._buildLevel();
+    this.hud();
+  },
+  _buildLevel(){
+    const{CW,CH,WORLD_W,level}=this;
+    const GY=CH-34;
+    const spd=1+0.35*(level-1);
+    this.GY=GY;
 
-  // Grid dots
-  ctx.fillStyle = '#1a1a1a';
-  for (let x = 0; x < GRID; x++)
-    for (let y = 0; y < GRID; y++)
-      ctx.fillRect(x*CELL + CELL/2 - 1, y*CELL + CELL/2 - 1, 2, 2);
+    this.platforms=[
+      // Ground with a gap at x=620–680
+      {x:0,   y:GY,w:620, h:34,t:'g'},
+      {x:680, y:GY,w:WORLD_W-680,h:34,t:'g'},
+      // Brick platforms
+      {x:170, y:GY-72, w:90, h:14,t:'b'},
+      {x:360, y:GY-98, w:80, h:14,t:'b'},
+      {x:530, y:GY-64, w:100,h:14,t:'b'},
+      {x:760, y:GY-88, w:80, h:14,t:'b'},
+      {x:920, y:GY-68, w:90, h:14,t:'b'},
+      {x:1100,y:GY-96, w:80, h:14,t:'b'},
+      {x:1280,y:GY-72, w:100,h:14,t:'b'},
+      {x:1480,y:GY-92, w:80, h:14,t:'b'},
+      {x:1660,y:GY-68, w:90, h:14,t:'b'},
+      {x:1860,y:GY-88, w:80, h:14,t:'b'},
+      {x:2040,y:GY-64, w:100,h:14,t:'b'},
+      {x:2240,y:GY-96, w:80, h:14,t:'b'},
+      {x:2420,y:GY-72, w:90, h:14,t:'b'},
+      {x:2630,y:GY-88, w:80, h:14,t:'b'},
+      {x:2820,y:GY-68, w:90, h:14,t:'b'},
+    ];
 
-  // Food with glow
-  ctx.shadowBlur = 15;
-  ctx.shadowColor = '#ff4444';
-  ctx.fillStyle = '#ff4444';
-  ctx.beginPath();
-  ctx.arc(food.x*CELL + CELL/2, food.y*CELL + CELL/2, CELL/2 - 2, 0, Math.PI*2);
-  ctx.fill();
-  ctx.shadowBlur = 0;
+    // Coins — float 24px above each brick platform center
+    this.coins=this.platforms.filter(p=>p.t==='b').flatMap(p=>[
+      {x:p.x+p.w/2-10,y:p.y-24,done:false},
+      {x:p.x+p.w/2+10,y:p.y-24,done:false},
+    ]);
 
-  // Snake
-  snake.forEach((seg, i) => {
-    const ratio = 1 - (i / snake.length) * 0.5;
-    ctx.shadowBlur = i === 0 ? 12 : 0;
-    ctx.shadowColor = '#00ff41';
-    ctx.fillStyle = i === 0
-      ? '#00ff41'
-      : `rgba(0, ${Math.floor(255 * ratio)}, ${Math.floor(65 * ratio)}, 1)`;
-    const pad = i === 0 ? 1 : 2;
+    // Goombas with patrol ranges on ground
+    this.goombas=[
+      {x:280, y:GY-20,w:20,h:20,vx:-spd,min:50,  max:610, alive:true},
+      {x:820, y:GY-20,w:20,h:20,vx:spd, min:690,  max:1200,alive:true},
+      {x:1400,y:GY-20,w:20,h:20,vx:-spd,min:690,  max:1800,alive:true},
+      {x:1950,y:GY-20,w:20,h:20,vx:spd, min:690,  max:2400,alive:true},
+      {x:2500,y:GY-20,w:20,h:20,vx:-spd,min:690,  max:3000,alive:true},
+      {x:2900,y:GY-20,w:20,h:20,vx:spd, min:690,  max:3150,alive:true},
+    ];
+
+    this.flagX=WORLD_W-110;
+    this.flagY=GY-this.flagH;
+    this.flagDone=false;
+
+    this.clouds=[200,650,1100,1550,2000,2450,2900].map(x=>({x}));
+
+    // Reset player
+    this.player={x:60,y:GY-28,vx:0,vy:0,w:18,h:28,onGround:false,facing:1,dead:false,dt:0};
+    this.cameraX=0;
+  },
+  hud(){
+    scoreboard.innerHTML=`<div><span>SCORE </span><b>${this.score}</b></div><div><span>BEST </span><b>${this.best}</b></div><div><span>LVL </span><b>${this.level}</b></div>`;
+  },
+  showStart(){
+    overlay.innerHTML=`<h2>🍄 MARIO</h2><p>HOLD ◀▶ TO MOVE · TAP JUMP</p><p>STOMP ENEMIES · GRAB COINS · REACH FLAG 🏁</p><button class="ov-btn" id="ob">▶ START</button>`;
+    overlay.style.display='flex';
+    document.getElementById('ob').onclick=()=>this.begin();
+  },
+  begin(){
+    overlay.style.display='none';
+    this.running=true;
+    this.raf=requestAnimationFrame(()=>this.loop());
+  },
+  stop(){
+    this.running=false;
+    cancelAnimationFrame(this.raf);this.raf=null;
+    this.keys={left:false,right:false,jump:false};
+  },
+  loop(){
+    if(!this.running)return;
+    this.update();this.render();
+    this.raf=requestAnimationFrame(()=>this.loop());
+  },
+  update(){
+    const p=this.player;
+
+    // Death float
+    if(p.dead){
+      p.vy+=0.4;p.y+=p.vy;p.dt++;
+      if(p.dt>110)this.over();
+      return;
+    }
+
+    const wasOnGround=p.onGround;
+    p.onGround=false;
+
+    // Gravity
+    p.vy=Math.min(p.vy+0.55,15);
+
+    // Jump
+    if(this.keys.jump&&wasOnGround){p.vy=-13;this.keys.jump=false;}
+
+    // Horizontal
+    if(this.keys.left){p.vx=-3.5;p.facing=-1;}
+    else if(this.keys.right){p.vx=3.5;p.facing=1;}
+    else{p.vx*=0.82;if(Math.abs(p.vx)<0.1)p.vx=0;}
+
+    p.x+=p.vx;
+    p.x=Math.max(0,Math.min(p.x,this.WORLD_W-p.w));
+
+    const prevBottom=p.y+p.h;
+    p.y+=p.vy;
+
+    // Platform collisions (top-only for bricks, top+sides for ground)
+    for(const pl of this.platforms){
+      if(p.x+p.w<=pl.x||p.x>=pl.x+pl.w)continue;
+      // Landing on top
+      if(p.vy>=0&&prevBottom<=pl.y+4&&p.y+p.h>pl.y){
+        p.y=pl.y-p.h;p.vy=0;p.onGround=true;
+      }
+      // Head bump
+      else if(p.vy<0&&p.y<pl.y+pl.h&&prevBottom>=pl.y+pl.h-1){
+        p.y=pl.y+pl.h;p.vy=1;
+      }
+    }
+
+    // Fall off world
+    if(p.y>this.CH+80)this.die();
+
+    // Goombas
+    for(const g of this.goombas){
+      if(!g.alive)continue;
+      g.x+=g.vx;
+      if(g.x<=g.min){g.x=g.min;g.vx=Math.abs(g.vx);}
+      if(g.x+g.w>=g.max){g.x=g.max-g.w;g.vx=-Math.abs(g.vx);}
+      if(p.dead)continue;
+      if(!this._hit(p,g))continue;
+      if(p.vy>0&&(p.y+p.h-p.vy)<=g.y+6){
+        g.alive=false;p.vy=-9;
+        this.score+=100;this._saveBest();this.hud();
+      }else{this.die();}
+    }
+
+    // Coins
+    for(const c of this.coins){
+      if(c.done)continue;
+      if(p.x<c.x+9&&p.x+p.w>c.x-9&&p.y<c.y+9&&p.y+p.h>c.y-9){
+        c.done=true;this.score+=10;this._saveBest();this.hud();
+      }
+    }
+
+    // Flagpole
+    if(!this.flagDone&&p.x+p.w>this.flagX&&p.x<this.flagX+8&&p.y+p.h>this.flagY){
+      this.flagDone=true;this.win();
+    }
+
+    // Camera
+    this.cameraX=Math.max(0,Math.min(p.x-this.CW/3,this.WORLD_W-this.CW));
+  },
+  _hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;},
+  _saveBest(){if(this.score>this.best){this.best=this.score;localStorage.setItem('marioBest',this.best);}},
+  die(){
+    if(this.player.dead)return;
+    this.player.dead=true;this.player.vy=-10;this.player.vx=0;this.player.dt=0;
+  },
+  over(){
+    this.stop();
+    overlay.innerHTML=`<h2>GAME OVER</h2><p>SCORE <b>${this.score}</b></p><p>BEST <b>${this.best}</b></p><button class="ov-btn" id="ob">▶ RETRY</button>`;
+    overlay.style.display='flex';
+    document.getElementById('ob').onclick=()=>{this.reset();this.begin();};
+  },
+  win(){
+    this.stop();
+    const bonus=500+this.level*200;
+    this.score+=bonus;this._saveBest();
+    const sc=this.score,lv=this.level+1;
+    overlay.innerHTML=`<h2>LEVEL CLEAR! 🏁</h2><p>BONUS +${bonus}</p><p>SCORE <b>${sc}</b></p><button class="ov-btn" id="ob">▶ NEXT LEVEL</button>`;
+    overlay.style.display='flex';
+    document.getElementById('ob').onclick=()=>{
+      this.level=lv;this.score=sc;
+      this._buildLevel();this.hud();
+      overlay.style.display='none';
+      this.running=true;this.raf=requestAnimationFrame(()=>this.loop());
+    };
+  },
+
+  render(){
+    const{CW,CH,cameraX}=this;
+    const p=this.player;
+
+    // Sky
+    ctx.fillStyle='#5c94fc';ctx.fillRect(0,0,CW,CH);
+
+    // Clouds (parallax 0.3x)
+    ctx.fillStyle='rgba(255,255,255,0.88)';
+    for(const cl of this.clouds){
+      const cx=cl.x-cameraX*0.3;
+      if(cx<-80||cx>CW+80)continue;
+      this._cloud(cx,22);
+    }
+
+    ctx.save();ctx.translate(-cameraX,0);
+
+    // Platforms
+    for(const pl of this.platforms){
+      if(pl.x+pl.w<cameraX-8||pl.x>cameraX+CW+8)continue;
+      if(pl.t==='g'){
+        ctx.fillStyle='#388e3c';ctx.fillRect(pl.x,pl.y,pl.w,6);
+        ctx.fillStyle='#8d6e63';ctx.fillRect(pl.x,pl.y+6,pl.w,pl.h-6);
+      }else{
+        ctx.fillStyle='#c2753a';ctx.fillRect(pl.x,pl.y,pl.w,pl.h);
+        ctx.strokeStyle='#7d3f10';ctx.lineWidth=1;
+        for(let bx=pl.x;bx<pl.x+pl.w;bx+=18){
+          ctx.strokeRect(bx+0.5,pl.y+0.5,Math.min(18,pl.x+pl.w-bx)-1,pl.h-1);
+        }
+      }
+    }
+
+    // Flagpole
+    ctx.fillStyle='#bdbdbd';ctx.fillRect(this.flagX,this.flagY,5,this.flagH);
+    ctx.fillStyle='#ffd700';ctx.beginPath();ctx.arc(this.flagX+2,this.flagY,5,0,Math.PI*2);ctx.fill();
+    if(!this.flagDone){
+      ctx.fillStyle='#e53935';
+      ctx.beginPath();ctx.moveTo(this.flagX+5,this.flagY+8);ctx.lineTo(this.flagX+26,this.flagY+17);ctx.lineTo(this.flagX+5,this.flagY+26);ctx.fill();
+    }
+
+    // Coins
+    for(const c of this.coins){
+      if(c.done)continue;
+      if(c.x<cameraX-18||c.x>cameraX+CW+18)continue;
+      ctx.shadowBlur=8;ctx.shadowColor='#ffd700';
+      ctx.fillStyle='#ffd700';ctx.beginPath();ctx.arc(c.x,c.y,7,0,Math.PI*2);ctx.fill();
+      ctx.shadowBlur=0;
+    }
+
+    // Goombas
+    for(const g of this.goombas){
+      if(!g.alive)continue;
+      if(g.x+g.w<cameraX-8||g.x>cameraX+CW+8)continue;
+      this._drawGoomba(g);
+    }
+
+    // Player (blink when dead)
+    if(!p.dead||Math.floor(Date.now()/80)%2===0)this._drawMario(p);
+
+    ctx.restore();
+  },
+  _cloud(x,y){
     ctx.beginPath();
-    ctx.roundRect(seg.x*CELL + pad, seg.y*CELL + pad, CELL - pad*2, CELL - pad*2, 3);
+    ctx.arc(x+14,y+10,11,0,Math.PI*2);
+    ctx.arc(x+26,y+4,15,0,Math.PI*2);
+    ctx.arc(x+40,y+10,11,0,Math.PI*2);
     ctx.fill();
-    ctx.shadowBlur = 0;
-  });
+  },
+  _drawGoomba(g){
+    ctx.fillStyle='#6d4c41';
+    ctx.fillRect(g.x,g.y+8,g.w,g.h-8);
+    ctx.beginPath();ctx.arc(g.x+g.w/2,g.y+9,g.w/2,Math.PI,0);ctx.fill();
+    ctx.fillStyle='white';
+    ctx.fillRect(g.x+2,g.y+8,5,5);ctx.fillRect(g.x+13,g.y+8,5,5);
+    ctx.fillStyle='#000';
+    ctx.fillRect(g.x+3,g.y+9,3,3);ctx.fillRect(g.x+14,g.y+9,3,3);
+    ctx.strokeStyle='#000';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(g.x+2,g.y+7);ctx.lineTo(g.x+7,g.y+9);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(g.x+g.w-2,g.y+7);ctx.lineTo(g.x+g.w-7,g.y+9);ctx.stroke();
+    ctx.fillStyle='#4e342e';
+    ctx.fillRect(g.x-1,g.y+g.h-5,9,5);ctx.fillRect(g.x+g.w-8,g.y+g.h-5,9,5);
+  },
+  _drawMario(p){
+    const{x,y,w,h,facing}=p;
+    // Hat
+    ctx.fillStyle='#e53935';ctx.fillRect(x+2,y,w-4,5);ctx.fillRect(x-1,y+3,w+2,5);
+    // Face
+    ctx.fillStyle='#ffcc80';ctx.fillRect(x+1,y+7,w-2,8);
+    // Eye
+    ctx.fillStyle='#1a1a1a';ctx.fillRect(facing===1?x+11:x+2,y+9,3,3);
+    // Nose
+    ctx.fillStyle='#ef9a9a';ctx.fillRect(facing===1?x+8:x+4,y+12,5,3);
+    // Mustache
+    ctx.fillStyle='#5d4037';ctx.fillRect(x+1,y+13,w-2,3);
+    // Overalls straps
+    ctx.fillStyle='#1565c0';ctx.fillRect(x+3,y+15,4,5);ctx.fillRect(x+w-7,y+15,4,5);
+    // Red shirt
+    ctx.fillStyle='#e53935';ctx.fillRect(x,y+15,w,6);
+    // Overalls
+    ctx.fillStyle='#1565c0';ctx.fillRect(x,y+21,w,h-21);
+    // Buttons
+    ctx.fillStyle='#ffd700';ctx.fillRect(x+4,y+22,3,3);ctx.fillRect(x+w-7,y+22,3,3);
+    // Shoes
+    ctx.fillStyle='#3e2723';ctx.fillRect(x-1,y+h-5,w+2,5);
+  }
+};
+
+// =====================
+// SWITCHER
+// =====================
+let active=null;
+
+function switchGame(name){
+  if(active)active.stop();
+  document.querySelectorAll('.sel-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('sel-'+name).classList.add('active');
+  document.getElementById('snake-controls').style.display=name==='snake'?'grid':'none';
+  document.getElementById('mario-controls').style.display=name==='mario'?'flex':'none';
+  active=name==='snake'?Snake:Mario;
+  active.reset();active.showStart();
 }
 
-function gameOver() {
-  clearInterval(loop);
-  overlay.innerHTML = `
-    <h2>GAME OVER</h2>
-    <p class="final-score">SCORE: <b>${score}</b></p>
-    <p>BEST: <b>${best}</b></p>
-    <button id="start-btn">▶ RETRY</button>
-  `;
-  overlay.style.display = 'flex';
-  document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('sel-snake').onclick=()=>switchGame('snake');
+document.getElementById('sel-mario').onclick=()=>switchGame('mario');
+
+// =====================
+// SNAKE INPUT
+// =====================
+document.getElementById('btn-up').addEventListener('pointerdown',   ()=>Snake.setDir(0,-1));
+document.getElementById('btn-down').addEventListener('pointerdown', ()=>Snake.setDir(0,1));
+document.getElementById('btn-left').addEventListener('pointerdown', ()=>Snake.setDir(-1,0));
+document.getElementById('btn-right').addEventListener('pointerdown',()=>Snake.setDir(1,0));
+
+// =====================
+// MARIO BUTTONS (hold for movement)
+// =====================
+function hold(id,on,off){
+  const el=document.getElementById(id);
+  el.addEventListener('pointerdown',e=>{e.preventDefault();on();});
+  el.addEventListener('pointerup',off);el.addEventListener('pointercancel',off);el.addEventListener('pointerleave',off);
 }
+hold('mbtn-left',()=>Mario.keys.left=true,()=>Mario.keys.left=false);
+hold('mbtn-right',()=>Mario.keys.right=true,()=>Mario.keys.right=false);
+document.getElementById('mbtn-jump').addEventListener('pointerdown',e=>{e.preventDefault();Mario.keys.jump=true;});
 
-function startGame() {
-  overlay.style.display = 'none';
-  init();
-  draw();
-  loop = setInterval(step, speed);
-}
-
-// Button controls
-document.getElementById('btn-up').addEventListener('click',    () => setDir(0,-1));
-document.getElementById('btn-down').addEventListener('click',  () => setDir(0, 1));
-document.getElementById('btn-left').addEventListener('click',  () => setDir(-1,0));
-document.getElementById('btn-right').addEventListener('click', () => setDir(1, 0));
-
-function setDir(x, y) {
-  if (x !== 0 && dir.x !== 0) return;
-  if (y !== 0 && dir.y !== 0) return;
-  nextDir = {x, y};
-}
-
-// Keyboard
-document.addEventListener('keydown', e => {
-  const map = {ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0]};
-  if (map[e.key]) { e.preventDefault(); setDir(...map[e.key]); }
+// =====================
+// KEYBOARD
+// =====================
+document.addEventListener('keydown',e=>{
+  if(active===Snake){
+    const m={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0]};
+    if(m[e.key]){e.preventDefault();Snake.setDir(...m[e.key]);}
+  }
+  if(active===Mario){
+    if(e.key==='ArrowLeft')Mario.keys.left=true;
+    if(e.key==='ArrowRight')Mario.keys.right=true;
+    if(e.key===' '||e.key==='ArrowUp'){e.preventDefault();Mario.keys.jump=true;}
+  }
+});
+document.addEventListener('keyup',e=>{
+  if(e.key==='ArrowLeft')Mario.keys.left=false;
+  if(e.key==='ArrowRight')Mario.keys.right=false;
 });
 
-// Swipe
-let tx, ty;
-document.addEventListener('touchstart', e => {
-  tx = e.touches[0].clientX;
-  ty = e.touches[0].clientY;
-}, {passive:true});
-document.addEventListener('touchend', e => {
-  const dx = e.changedTouches[0].clientX - tx;
-  const dy = e.changedTouches[0].clientY - ty;
-  if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-  if (Math.abs(dx) > Math.abs(dy)) setDir(dx > 0 ? 1 : -1, 0);
-  else setDir(0, dy > 0 ? 1 : -1);
-}, {passive:true});
+// =====================
+// SWIPE
+// =====================
+let swX=0,swY=0;
+document.addEventListener('touchstart',e=>{swX=e.touches[0].clientX;swY=e.touches[0].clientY;},{passive:true});
+document.addEventListener('touchend',e=>{
+  const dx=e.changedTouches[0].clientX-swX,dy=e.changedTouches[0].clientY-swY;
+  if(Math.abs(dx)<15&&Math.abs(dy)<15)return;
+  if(active===Snake){
+    if(Math.abs(dx)>Math.abs(dy))Snake.setDir(dx>0?1:-1,0);
+    else Snake.setDir(0,dy>0?1:-1);
+  }
+  if(active===Mario&&dy<-30){Mario.keys.jump=true;setTimeout(()=>Mario.keys.jump=false,80);}
+},{passive:true});
 
-document.getElementById('start-btn').addEventListener('click', startGame);
+// Boot
+switchGame('snake');
 </script>
 </body>
 </html>
