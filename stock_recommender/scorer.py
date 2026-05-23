@@ -8,7 +8,7 @@ Each stock receives a total score in [-100, +100]:
   Analyst consensus         30     Finviz Recom (1=Strong Buy … 5=Strong Sell)
   Target-price upside       20     (Target Price − Price) / Price
   SMA trend (20/50/200)     20     % above/below each SMA (5+7+8 pts)
-  Price momentum            15     Perf Month + Perf Quart + Perf Half (5 ea)
+  Price momentum            15     1M(3) + 3M(3) + 6M(4) + 12M(5)
   Earnings growth           10     EPS next Y + EPS next 5Y (5 ea)
   Smart money                5     Insider Trans + Inst Trans (2.5 ea)
   ─────────────────────────────────────────────
@@ -108,14 +108,20 @@ def _score_sma(df: pd.DataFrame) -> pd.Series:
 
 def _score_momentum(df: pd.DataFrame) -> pd.Series:
     """
-    1-month (5 pts), 3-month (5 pts), 6-month (5 pts) performance.
-    Each capped at ±30% → linear mapping.
+    1-month (3 pts), 3-month (3 pts), 6-month (4 pts), 12-month (5 pts).
+    Increasing weight on longer windows; each capped at ±30 / 50 / 60 / 75%.
+    Total: 15 pts.
     """
-    def _perf(col: str, pts: float, cap: float = 0.30) -> pd.Series:
+    def _perf(col: str, pts: float, cap: float) -> pd.Series:
         vals = _series_pct(df, col)
         return ((vals / cap).clip(-1, 1) * pts).fillna(0.0)
 
-    return _perf("Perf Month", 5.0) + _perf("Perf Quart", 5.0) + _perf("Perf Half", 5.0)
+    return (
+        _perf("Perf Month", 3.0, 0.30)
+        + _perf("Perf Quart", 3.0, 0.30)
+        + _perf("Perf Half",  4.0, 0.50)
+        + _perf("Perf Year",  5.0, 0.75)
+    )
 
 
 def _score_fundamentals(df: pd.DataFrame) -> pd.Series:

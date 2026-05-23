@@ -42,32 +42,32 @@ def print_report(ranked: pd.DataFrame, top_n: int = 25, use_color: bool = True) 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     total = len(ranked)
 
-    print("=" * 100)
+    print("=" * 108)
     print("  STOCK RECOMMENDATION ENGINE  –  Finviz US Equity Rankings")
     print(f"  Generated : {now}")
     print(f"  Universe  : {total} stocks scored")
-    print("=" * 100)
+    print("=" * 108)
     print()
     print("  Conviction score: −100 (Strong Sell) → +100 (Strong Buy)")
     print()
     print("  Score weights: Analyst Consensus 30% | Target Upside 20% | SMA Trend 20%")
-    print("                 Momentum 15% | Earnings Growth 10% | Smart Money 5%")
+    print("                 Momentum 15% (1M×3+3M×3+6M×4+12M×5) | Earnings Growth 10% | Smart Money 5%")
     print()
 
     def _section(subset: pd.DataFrame, title: str) -> None:
-        print(f"{'─' * 100}")
+        print(f"{'─' * 108}")
         print(f"  {title}")
-        print(f"{'─' * 100}")
+        print(f"{'─' * 108}")
         hdr = (
             f"  {'#':>3}  {'Ticker':<8}  {'Company':<26}  {'Sector':<18}  "
             f"{'Score':>6}  {'Label':<12}  "
             f"{'Recom':>5}  {'Upside':>7}  {'RSI':>5}  "
-            f"{'1M':>6}  {'3M':>6}  {'6M':>6}  "
+            f"{'1M':>6}  {'3M':>6}  {'6M':>6}  {'12M':>7}  "
             f"{'SMA50':>6}  {'SMA200':>7}"
         )
         print(hdr)
         print(f"  {'─'*3}  {'─'*8}  {'─'*26}  {'─'*18}  {'─'*6}  {'─'*12}  "
-              f"{'─'*5}  {'─'*7}  {'─'*5}  {'─'*6}  {'─'*6}  {'─'*6}  {'─'*6}  {'─'*7}")
+              f"{'─'*5}  {'─'*7}  {'─'*5}  {'─'*6}  {'─'*6}  {'─'*6}  {'─'*7}  {'─'*6}  {'─'*7}")
 
         for i, (_, row) in enumerate(subset.iterrows(), 1):
             ticker  = str(row.get("Ticker",  "-"))
@@ -82,6 +82,7 @@ def print_report(ranked: pd.DataFrame, top_n: int = 25, use_color: bool = True) 
             p1m     = str(row.get("Perf Month",  "-"))
             p3m     = str(row.get("Perf Quart",  "-"))
             p6m     = str(row.get("Perf Half",   "-"))
+            p12m    = str(row.get("Perf Year",   "-"))
 
             # Target upside
             try:
@@ -98,7 +99,7 @@ def print_report(ranked: pd.DataFrame, top_n: int = 25, use_color: bool = True) 
                 f"  {i:>3}  {ticker:<8}  {company:<26}  {sector:<18}  "
                 f"{score_str:>6}  {label_str}  "
                 f"{recom:>5}  {upside_str:>7}  {rsi:>5}  "
-                f"{p1m:>6}  {p3m:>6}  {p6m:>6}  "
+                f"{p1m:>6}  {p3m:>6}  {p6m:>6}  {p12m:>7}  "
                 f"{sma50:>6}  {sma200:>7}"
             )
         print()
@@ -112,9 +113,9 @@ def print_report(ranked: pd.DataFrame, top_n: int = 25, use_color: bool = True) 
     _section(sells, f"TOP {len(sells)} CONVICTION SELLS  (lowest score first)")
 
     # Distribution
-    print("─" * 100)
+    print("─" * 108)
     print("  SCORE DISTRIBUTION")
-    print("─" * 100)
+    print("─" * 108)
     labels_order = ["Strong Buy", "Buy", "Mild Buy", "Neutral", "Mild Sell", "Sell", "Strong Sell"]
     counts = ranked["conviction_label"].value_counts()
     for lbl in labels_order:
@@ -122,7 +123,7 @@ def print_report(ranked: pd.DataFrame, top_n: int = 25, use_color: bool = True) 
         bar = "█" * int(n / max(counts.values) * 40) if counts.values.max() > 0 else ""
         print(f"  {lbl:<14}  {n:>4}  {bar}")
     print()
-    print("=" * 100)
+    print("=" * 108)
 
 
 def save_csv(ranked: pd.DataFrame, path: str) -> None:
