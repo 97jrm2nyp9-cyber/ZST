@@ -1,0 +1,1470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Black &amp; White</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; font-family: 'Georgia', serif; }
+canvas { display: block; cursor: none; }
+
+#ui {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 10;
+}
+
+/* Alignment bar */
+#align-bar {
+  position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+  width: 260px; text-align: center;
+}
+#align-label {
+  color: rgba(255,255,255,0.7); font-size: 11px; letter-spacing: 2px;
+  text-transform: uppercase; margin-bottom: 6px; text-shadow: 0 0 8px #000;
+}
+#align-track {
+  width: 100%; height: 10px; border-radius: 5px;
+  background: linear-gradient(to right, #8B0000, #555, #FFD700);
+  position: relative; border: 1px solid rgba(255,255,255,0.2);
+}
+#align-thumb {
+  position: absolute; top: -4px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff;
+  border: 2px solid rgba(0,0,0,0.5);
+  transform: translateX(-50%);
+  transition: left 0.3s ease;
+  box-shadow: 0 0 8px rgba(255,255,255,0.8);
+  left: 50%;
+}
+
+/* Faith meter */
+#faith-bar {
+  position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 180px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+#faith-label {
+  color: rgba(255,255,255,0.6); font-size: 10px; letter-spacing: 1px;
+  writing-mode: vertical-rl; text-transform: uppercase; margin-bottom: 4px;
+  text-shadow: 0 0 6px #000;
+}
+#faith-track {
+  flex: 1; width: 8px; border-radius: 4px;
+  background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+  position: relative; overflow: hidden;
+}
+#faith-fill {
+  position: absolute; bottom: 0; width: 100%;
+  background: linear-gradient(to top, #4488ff, #aaccff);
+  border-radius: 4px; transition: height 0.5s ease;
+  height: 10%;
+}
+
+/* Creature panel */
+#creature-panel {
+  position: absolute; left: 16px; top: 16px;
+  background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px; padding: 10px 14px; min-width: 140px;
+}
+#creature-panel h3 {
+  color: rgba(255,255,255,0.8); font-size: 11px; letter-spacing: 1px;
+  text-transform: uppercase; margin-bottom: 8px;
+}
+.trait-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.trait-name { color: rgba(255,255,255,0.5); font-size: 10px; width: 70px; }
+.trait-bar { flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+.trait-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+#bar-friendly .trait-fill { background: #44cc88; width: 50%; }
+#bar-aggress  .trait-fill { background: #cc4444; width: 30%; }
+#bar-lazy     .trait-fill { background: #aaaaaa; width: 60%; }
+
+/* Controls hint */
+#controls {
+  position: absolute; bottom: 60px; right: 16px;
+  background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px; padding: 8px 12px;
+  color: rgba(255,255,255,0.5); font-size: 10px; line-height: 1.7;
+}
+
+/* Tutorial overlay */
+#tutorial {
+  position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+  text-align: center; color: rgba(255,255,255,0.85);
+  text-shadow: 0 2px 12px rgba(0,0,0,0.9);
+  pointer-events: none;
+  transition: opacity 2s ease;
+}
+#tutorial h1 {
+  font-size: 42px; letter-spacing: 6px; text-transform: uppercase;
+  margin-bottom: 12px; font-weight: 300;
+}
+#tutorial p { font-size: 14px; letter-spacing: 1px; opacity: 0.7; }
+
+/* Miracle feedback */
+#miracle-flash {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  font-size: 18px; letter-spacing: 3px; text-transform: uppercase;
+  color: #fff; text-shadow: 0 0 20px currentColor;
+  opacity: 0; transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+/* Gesture canvas overlay */
+#gesture-canvas {
+  position: absolute; top: 0; left: 0; pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <div id="tutorial">
+    <h1>Black &amp; White</h1>
+    <p>Move your hand across the land &mdash; you are a god</p>
+  </div>
+
+  <div id="creature-panel">
+    <h3>Your Creature</h3>
+    <div class="trait-row">
+      <span class="trait-name">Friendly</span>
+      <div class="trait-bar" id="bar-friendly"><div class="trait-fill"></div></div>
+    </div>
+    <div class="trait-row">
+      <span class="trait-name">Aggress.</span>
+      <div class="trait-bar" id="bar-aggress"><div class="trait-fill"></div></div>
+    </div>
+    <div class="trait-row">
+      <span class="trait-name">Lazy</span>
+      <div class="trait-bar" id="bar-lazy"><div class="trait-fill"></div></div>
+    </div>
+    <div id="creature-status" style="color:rgba(255,255,255,0.4);font-size:9px;margin-top:6px;letter-spacing:1px;"></div>
+  </div>
+
+  <div id="align-bar">
+    <div id="align-label">Alignment</div>
+    <div id="align-track">
+      <div id="align-thumb"></div>
+    </div>
+  </div>
+
+  <div id="faith-bar">
+    <div id="faith-label">Faith</div>
+    <div id="faith-track"><div id="faith-fill"></div></div>
+  </div>
+
+  <div id="controls">
+    <b style="color:rgba(255,255,255,0.7)">Controls</b><br>
+    LMB — pick up &amp; throw<br>
+    RMB drag — gesture spell<br>
+    1 Fireball &nbsp; 2 Food<br>
+    3 Heal &nbsp;&nbsp;&nbsp;&nbsp; 4 Wood<br>
+    R near creature — reward<br>
+    P near creature — punish<br>
+    Scroll — zoom
+  </div>
+
+  <div id="miracle-flash"></div>
+  <canvas id="gesture-canvas"></canvas>
+</div>
+
+<canvas id="c"></canvas>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// ─── Noise ───────────────────────────────────────────────────────────────────
+function noise2D(x, z) {
+  let v = 0, amp = 1, freq = 1, max = 0;
+  const offsets = [[1.7,0.5],[0.4,1.2],[2.1,0.8],[0.9,1.5]];
+  const freqs   = [0.28, 0.57, 1.13, 2.27];
+  for (let i = 0; i < 4; i++) {
+    const f = freqs[i] * freq;
+    v   += Math.sin(x * f + offsets[i][0]) * Math.cos(z * f * 1.01 + offsets[i][1]) * amp;
+    max += amp;
+    amp *= 0.5;
+  }
+  return v / max;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * Math.max(0, Math.min(1, t)); }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
+function v3(x, y, z) { return new THREE.Vector3(x, y, z); }
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+const ISLAND_RADIUS  = 90;
+const TERRAIN_SEGS   = 128;
+const TERRAIN_SIZE   = 200;
+const SEA_LEVEL      = 0;
+const INFLUENCE_BASE = 45;
+const INFLUENCE_MAX  = 120;
+const VILLAGE_POS    = new THREE.Vector3(18, 0, 10);
+
+// ─── Globals ─────────────────────────────────────────────────────────────────
+let renderer, scene, camera, composer, controls;
+let clock = new THREE.Clock();
+let terrainMesh, waterMesh;
+let godHand, handGroup;
+let raycaster = new THREE.Raycaster();
+let mouse = new THREE.Vector2();
+let worldMouse = new THREE.Vector3();
+let prevWorldMouse = new THREE.Vector3();
+let grabbedObject = null;
+let grabOffset = new THREE.Vector3();
+
+let alignment = 0;       // -1 evil … +1 good
+let faithPoints = 0;
+let influenceRadius = INFLUENCE_BASE;
+let influenceRing;
+
+let villagers = [];
+let foodPiles = [];
+let projectiles = [];
+let particles = [];
+let ambientSprites = [];
+let creature;
+let audioCtx;
+
+// Gesture
+let gestureActive = false;
+let gesturePath = [];
+let gestureCanvas, gestureCtx2d;
+let gestureObjects = [];
+
+// Miracle cast count for creature learning
+let miracleCastCount = { fireball: 0, food: 0, heal: 0, wood: 0 };
+
+// ─── Audio ───────────────────────────────────────────────────────────────────
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+function playTone(freq, type = 'sine', duration = 0.15, gain = 0.18) {
+  ensureAudio();
+  const osc = audioCtx.createOscillator();
+  const g   = audioCtx.createGain();
+  osc.connect(g); g.connect(audioCtx.destination);
+  osc.type = type; osc.frequency.value = freq;
+  g.gain.setValueAtTime(gain, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+function playGrab()    { playTone(440, 'sine', 0.08, 0.12); }
+function playThrow()   { playTone(300, 'triangle', 0.12, 0.15); }
+function playHeal()    { playTone(660, 'sine', 0.4, 0.2); setTimeout(()=>playTone(880,'sine',0.3,0.15), 120); }
+function playFireball(){ playTone(110, 'sawtooth', 0.3, 0.25); }
+function playFood()    { playTone(528, 'sine', 0.25, 0.18); }
+function playWood()    { playTone(220, 'triangle', 0.2, 0.2); }
+function playReward()  { [528,660,784].forEach((f,i)=>setTimeout(()=>playTone(f,'sine',0.2,0.15),i*80)); }
+function playPunish()  { playTone(120, 'sawtooth', 0.25, 0.3); }
+
+// ─── Terrain heightmap ───────────────────────────────────────────────────────
+let terrainHeightData = [];
+function buildTerrain() {
+  const geo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SEGS, TERRAIN_SEGS);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const segs1 = TERRAIN_SEGS + 1;
+  terrainHeightData = new Float32Array(segs1 * segs1);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const r = Math.sqrt(x * x + z * z) / ISLAND_RADIUS;
+    const fade = Math.max(0, 1 - r * r * 1.4);
+    const h = (noise2D(x * 0.04, z * 0.04) * 0.5 + noise2D(x * 0.09, z * 0.09) * 0.3 + noise2D(x * 0.18, z * 0.18) * 0.2);
+    const height = Math.max(SEA_LEVEL - 2, h * 22 * fade);
+    pos.setY(i, height);
+    terrainHeightData[i] = height;
+  }
+  geo.computeVertexNormals();
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uSunColor: { value: new THREE.Color(1, 0.95, 0.85) },
+      uSunDir:   { value: new THREE.Vector3(0.5, 1, 0.4).normalize() },
+      uAlignment:{ value: 0.0 },
+    },
+    vertexShader: `
+      varying vec3 vNormal;
+      varying vec3 vWorldPos;
+      varying float vHeight;
+      void main() {
+        vNormal = normalMatrix * normal;
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        vHeight = position.y;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uSunColor;
+      uniform vec3 uSunDir;
+      uniform float uAlignment;
+      varying vec3 vNormal;
+      varying vec3 vWorldPos;
+      varying float vHeight;
+
+      vec3 beach  = vec3(0.76, 0.70, 0.50);
+      vec3 grass1 = vec3(0.30, 0.55, 0.20);
+      vec3 grass2 = vec3(0.22, 0.45, 0.14);
+      vec3 rock   = vec3(0.45, 0.42, 0.38);
+      vec3 snow   = vec3(0.90, 0.92, 0.95);
+
+      void main() {
+        // Height-based blend
+        vec3 col;
+        if (vHeight < 0.5) {
+          col = beach;
+        } else if (vHeight < 4.0) {
+          col = mix(beach, grass1, (vHeight - 0.5) / 3.5);
+        } else if (vHeight < 12.0) {
+          col = mix(grass1, grass2, (vHeight - 4.0) / 8.0);
+        } else if (vHeight < 18.0) {
+          col = mix(grass2, rock, (vHeight - 12.0) / 6.0);
+        } else {
+          col = mix(rock, snow, (vHeight - 18.0) / 4.0);
+        }
+
+        // Evil tint
+        float evil = clamp(-uAlignment, 0.0, 1.0);
+        col = mix(col, col * vec3(0.7, 0.5, 0.5), evil * 0.35);
+
+        // Diffuse lighting
+        vec3 n = normalize(vNormal);
+        float diff = max(dot(n, normalize(uSunDir)), 0.0);
+        vec3 light = uSunColor * (0.4 + 0.6 * diff);
+        col *= light;
+
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  });
+
+  terrainMesh = new THREE.Mesh(geo, mat);
+  terrainMesh.receiveShadow = true;
+  terrainMesh.name = 'terrain';
+  scene.add(terrainMesh);
+}
+
+function getTerrainHeight(x, z) {
+  // Bilinear sample from height data
+  const half = TERRAIN_SIZE / 2;
+  const nx = (x + half) / TERRAIN_SIZE * TERRAIN_SEGS;
+  const nz = (z + half) / TERRAIN_SIZE * TERRAIN_SEGS;
+  const ix = Math.floor(clamp(nx, 0, TERRAIN_SEGS - 1));
+  const iz = Math.floor(clamp(nz, 0, TERRAIN_SEGS - 1));
+  const fx = nx - ix, fz = nz - iz;
+  const stride = TERRAIN_SEGS + 1;
+  const h00 = terrainHeightData[iz * stride + ix]       || 0;
+  const h10 = terrainHeightData[iz * stride + ix + 1]   || 0;
+  const h01 = terrainHeightData[(iz+1)*stride + ix]     || 0;
+  const h11 = terrainHeightData[(iz+1)*stride + ix + 1] || 0;
+  return lerp(lerp(h00, h10, fx), lerp(h01, h11, fx), fz);
+}
+
+function snapToTerrain(obj, yOffset = 0) {
+  obj.position.y = getTerrainHeight(obj.position.x, obj.position.z) + yOffset;
+}
+
+// ─── Water ───────────────────────────────────────────────────────────────────
+function buildWater() {
+  const geo = new THREE.PlaneGeometry(400, 400, 64, 64);
+  geo.rotateX(-Math.PI / 2);
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime:      { value: 0 },
+      uDeepColor: { value: new THREE.Color(0.06, 0.18, 0.38) },
+      uFoamColor: { value: new THREE.Color(0.55, 0.75, 0.95) },
+      uAlignment: { value: 0.0 },
+    },
+    vertexShader: `
+      uniform float uTime;
+      varying vec2  vUV;
+      varying float vWave;
+      void main() {
+        vUV = uv;
+        vec3 p = position;
+        float w = sin(p.x * 0.25 + uTime * 1.2) * cos(p.z * 0.22 + uTime * 0.9) * 0.35
+                + sin(p.x * 0.55 + uTime * 1.8) * 0.15;
+        p.y += w;
+        vWave = w;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3  uDeepColor;
+      uniform vec3  uFoamColor;
+      uniform float uAlignment;
+      varying vec2  vUV;
+      varying float vWave;
+
+      void main() {
+        float foam  = smoothstep(0.25, 0.45, vWave);
+        float evil  = clamp(-uAlignment, 0.0, 1.0);
+        vec3 deep   = mix(uDeepColor, vec3(0.15, 0.04, 0.04), evil * 0.5);
+        vec3 col    = mix(deep, uFoamColor, foam * 0.4);
+        float alpha = 0.82 + foam * 0.1;
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+  });
+  waterMesh = new THREE.Mesh(geo, mat);
+  waterMesh.position.y = SEA_LEVEL - 0.5;
+  scene.add(waterMesh);
+}
+
+// ─── Trees ───────────────────────────────────────────────────────────────────
+function buildTrees() {
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5C3317 });
+  const leafMat  = new THREE.MeshLambertMaterial({ color: 0x2d6a2d });
+  const trunkGeo = new THREE.CylinderGeometry(0.2, 0.35, 2.5, 6);
+  const leafGeo  = new THREE.ConeGeometry(1.8, 3.5, 7);
+  const count = 80;
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist  = rand(12, 75);
+    const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
+    const h = getTerrainHeight(x, z);
+    if (h < 1.2 || h > 17) continue;
+    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+    trunk.castShadow = true;
+    trunk.position.set(x, h + 1.25, z);
+    scene.add(trunk);
+    const leaf = new THREE.Mesh(leafGeo, leafMat.clone());
+    leaf.castShadow = true;
+    leaf.position.set(x, h + 4.5, z);
+    leaf.rotation.y = Math.random() * Math.PI;
+    scene.add(leaf);
+  }
+}
+
+// ─── God Hand ────────────────────────────────────────────────────────────────
+function buildHand() {
+  handGroup = new THREE.Group();
+
+  // Palm
+  const palmGeo  = new THREE.BoxGeometry(1.8, 0.5, 2.2);
+  const palmMat  = new THREE.MeshStandardMaterial({ color: 0xf5c88a, roughness: 0.6 });
+  const palm     = new THREE.Mesh(palmGeo, palmMat);
+  palm.castShadow = true;
+  handGroup.add(palm);
+
+  // Fingers (4)
+  const fingerMat = new THREE.MeshStandardMaterial({ color: 0xf5c88a, roughness: 0.6 });
+  [-0.6, -0.2, 0.2, 0.6].forEach((fx, i) => {
+    const len = [1.5, 1.8, 1.7, 1.4][i];
+    const fg  = new THREE.CapsuleGeometry(0.18, len, 4, 8);
+    const fm  = new THREE.Mesh(fg, fingerMat);
+    fm.rotation.x = -Math.PI / 2;
+    fm.position.set(fx, 0, -1.1 - len / 2);
+    handGroup.add(fm);
+  });
+  // Thumb
+  const thumbG = new THREE.CapsuleGeometry(0.2, 1.0, 4, 8);
+  const thumb  = new THREE.Mesh(thumbG, fingerMat);
+  thumb.rotation.z = Math.PI / 4;
+  thumb.position.set(1.1, 0, -0.3);
+  handGroup.add(thumb);
+
+  scene.add(handGroup);
+  godHand = handGroup;
+}
+
+function updateHandColor() {
+  const t = (alignment + 1) / 2; // 0=evil, 1=good
+  const evilColor  = new THREE.Color(0.6, 0.1, 0.1);
+  const goodColor  = new THREE.Color(1.0, 0.85, 0.6);
+  const color = evilColor.clone().lerp(goodColor, t);
+  godHand.children.forEach(c => {
+    if (c.material) c.material.color.copy(color);
+  });
+
+  // Emissive glow
+  const emissiveGood = new THREE.Color(0.2, 0.15, 0.0);
+  const emissiveEvil = new THREE.Color(0.3, 0.0, 0.0);
+  const emissive = emissiveEvil.clone().lerp(emissiveGood, t);
+  godHand.children.forEach(c => {
+    if (c.material && c.material.emissive) c.material.emissive.copy(emissive);
+  });
+}
+
+// ─── Villagers ───────────────────────────────────────────────────────────────
+class VillagerAgent {
+  constructor(x, z) {
+    const bodyGeo  = new THREE.CapsuleGeometry(0.35, 1.0, 4, 8);
+    const bodyMat  = new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 0.8 });
+    this.mesh = new THREE.Mesh(bodyGeo, bodyMat);
+    this.mesh.castShadow = true;
+    this.mesh.userData.type = 'villager';
+    this.mesh.userData.agent = this;
+    this.mesh.position.set(x, getTerrainHeight(x, z) + 1.0, z);
+    scene.add(this.mesh);
+
+    // Head
+    const headGeo = new THREE.SphereGeometry(0.28, 8, 8);
+    const head = new THREE.Mesh(headGeo, bodyMat.clone());
+    head.position.set(0, 0.85, 0);
+    this.mesh.add(head);
+
+    this.state  = 'wander';
+    this.target = null;
+    this.hunger = Math.random() * 0.3;
+    this.fear   = 0;
+    this.timer  = rand(0, 3);
+    this.velocity = new THREE.Vector3();
+    this.alive  = true;
+  }
+
+  update(dt) {
+    if (!this.alive) return;
+    this.timer -= dt;
+    this.hunger = Math.min(1, this.hunger + dt * 0.012);
+    this.fear   = Math.max(0, this.fear - dt * 0.3);
+
+    // State transitions
+    if (this.fear > 0.5) {
+      this.state = 'flee';
+    } else if (this.hunger > 0.65) {
+      const fp = nearestFood(this.mesh.position);
+      if (fp) { this.target = fp; this.state = 'seek_food'; }
+      else     this.state = 'worship';
+    } else if (this.timer <= 0) {
+      this.state = Math.random() < 0.4 ? 'worship' : 'wander';
+      this.timer = rand(3, 8);
+    }
+
+    const speed = this.state === 'flee' ? 6 : (this.state === 'seek_food' ? 3.5 : 2);
+
+    if (this.state === 'wander') {
+      if (!this.target || this.mesh.position.distanceTo(this.target) < 1.5 || this.timer <= 0) {
+        const angle = Math.random() * Math.PI * 2;
+        const r = rand(3, 12);
+        const tx = VILLAGE_POS.x + Math.cos(angle) * r;
+        const tz = VILLAGE_POS.z + Math.sin(angle) * r;
+        this.target = new THREE.Vector3(tx, 0, tz);
+        this.timer = rand(4, 10);
+      }
+    } else if (this.state === 'worship') {
+      this.target = VILLAGE_POS.clone();
+    } else if (this.state === 'flee') {
+      // Flee away from nearest threat (fireball / evil zone)
+      const away = this.mesh.position.clone().sub(VILLAGE_POS).normalize().multiplyScalar(20);
+      this.target = this.mesh.position.clone().add(away);
+    } else if (this.state === 'seek_food') {
+      if (this.target && this.mesh.position.distanceTo(this.target.position || this.target) < 1.5) {
+        // Eat
+        this.hunger = Math.max(0, this.hunger - 0.5);
+        if (this.target.userData) {
+          this.target.userData.bites = (this.target.userData.bites || 0) + 1;
+          if (this.target.userData.bites > 4) { consumeFood(this.target); this.target = null; }
+        }
+        this.state = 'wander';
+        this.timer = rand(3, 6);
+      }
+    }
+
+    // Move toward target
+    if (this.target) {
+      const tp = (this.target.position || this.target);
+      const dir = new THREE.Vector3(tp.x - this.mesh.position.x, 0, tp.z - this.mesh.position.z);
+      const dist = dir.length();
+      if (dist > 0.3) {
+        dir.normalize();
+        this.mesh.position.x += dir.x * speed * dt;
+        this.mesh.position.z += dir.z * speed * dt;
+        this.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+      }
+    }
+
+    // Clamp inside island
+    const px = this.mesh.position.x, pz = this.mesh.position.z;
+    const r2 = Math.sqrt(px*px + pz*pz);
+    if (r2 > ISLAND_RADIUS - 5) {
+      this.mesh.position.x *= (ISLAND_RADIUS - 5) / r2;
+      this.mesh.position.z *= (ISLAND_RADIUS - 5) / r2;
+    }
+
+    snapToTerrain(this.mesh, 1.0);
+  }
+}
+
+function nearestFood(pos) {
+  let best = null, bestD = 999;
+  for (const f of foodPiles) {
+    if (!f.parent) continue;
+    const d = pos.distanceTo(f.position);
+    if (d < bestD) { bestD = d; best = f; }
+  }
+  return best;
+}
+
+function consumeFood(mesh) {
+  const idx = foodPiles.indexOf(mesh);
+  if (idx !== -1) foodPiles.splice(idx, 1);
+  scene.remove(mesh);
+}
+
+// ─── Village totem + influence ring ─────────────────────────────────────────
+function buildVillage() {
+  // Totem pole
+  const tGeo = new THREE.CylinderGeometry(0.4, 0.6, 6, 8);
+  const tMat = new THREE.MeshStandardMaterial({ color: 0x8B6914, roughness: 0.9 });
+  const totem = new THREE.Mesh(tGeo, tMat);
+  totem.castShadow = true;
+  const h = getTerrainHeight(VILLAGE_POS.x, VILLAGE_POS.z);
+  totem.position.set(VILLAGE_POS.x, h + 3, VILLAGE_POS.z);
+  scene.add(totem);
+
+  // Totem orb
+  const orbGeo = new THREE.SphereGeometry(0.7, 12, 12);
+  const orbMat = new THREE.MeshStandardMaterial({ color: 0xffffaa, emissive: 0xffdd44, emissiveIntensity: 1.5, roughness: 0.2 });
+  const orb = new THREE.Mesh(orbGeo, orbMat);
+  orb.position.set(VILLAGE_POS.x, h + 7, VILLAGE_POS.z);
+  scene.add(orb);
+
+  // Influence ring
+  const rGeo = new THREE.RingGeometry(influenceRadius - 0.4, influenceRadius + 0.4, 64);
+  rGeo.rotateX(-Math.PI / 2);
+  const rMat = new THREE.MeshBasicMaterial({
+    color: 0x4499ff, side: THREE.DoubleSide, transparent: true, opacity: 0.35,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  influenceRing = new THREE.Mesh(rGeo, rMat);
+  influenceRing.position.set(0, h + 0.15, 0);
+  scene.add(influenceRing);
+
+  // Spawn villagers
+  for (let i = 0; i < 10; i++) {
+    const angle = (i / 10) * Math.PI * 2;
+    const r = rand(6, 18);
+    villagers.push(new VillagerAgent(
+      VILLAGE_POS.x + Math.cos(angle) * r,
+      VILLAGE_POS.z + Math.sin(angle) * r
+    ));
+  }
+}
+
+function updateInfluenceRing() {
+  if (!influenceRing) return;
+  // Rebuild ring geometry when radius changes
+  influenceRing.geometry.dispose();
+  const r = influenceRadius;
+  const ng = new THREE.RingGeometry(r - 0.4, r + 0.4, 64);
+  ng.rotateX(-Math.PI / 2);
+  influenceRing.geometry = ng;
+
+  // Color based on alignment
+  const t = (alignment + 1) / 2;
+  influenceRing.material.color.setRGB(
+    lerp(0.8, 0.2, t),
+    lerp(0.1, 0.6, t),
+    lerp(0.1, 1.0, t)
+  );
+}
+
+// ─── Creature ─────────────────────────────────────────────────────────────────
+class CreatureAgent {
+  constructor() {
+    this.traits = { friendliness: 0.5, aggression: 0.3, laziness: 0.6 };
+    this.learnedMiracles = new Set();
+    this.autocastTimer = 0;
+    this.state = 'wander';
+    this.target = new THREE.Vector3(VILLAGE_POS.x + 20, 0, VILLAGE_POS.z + 5);
+    this.group = new THREE.Group();
+    this._buildMesh();
+    scene.add(this.group);
+
+    this.group.position.set(
+      VILLAGE_POS.x + 25,
+      getTerrainHeight(VILLAGE_POS.x + 25, VILLAGE_POS.z + 5) + 1.5,
+      VILLAGE_POS.z + 5
+    );
+  }
+
+  _buildMesh() {
+    const mat = new THREE.MeshStandardMaterial({ color: 0xc8a050, roughness: 0.5, emissive: 0x1a0800 });
+    // Body
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2, 2.5, 1.8), mat);
+    body.castShadow = true;
+    this.group.add(body);
+    // Head
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.9, 10, 10), mat);
+    head.position.set(0, 2.1, 0.4);
+    head.castShadow = true;
+    this.group.add(head);
+    // Eyes (glowing)
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0xffcc00, emissiveIntensity: 2 });
+    [-0.3, 0.3].forEach(ex => {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), eyeMat);
+      eye.position.set(ex, 2.2, 1.2);
+      this.group.add(eye);
+    });
+    // Legs
+    const legMat = new THREE.MeshStandardMaterial({ color: 0xa07840, roughness: 0.7 });
+    [[-0.6,-1.6,-0.5],[0.6,-1.6,-0.5],[-0.6,-1.6,0.5],[0.6,-1.6,0.5]].forEach(([lx,ly,lz]) => {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.18, 1.2, 6), legMat);
+      leg.position.set(lx, ly, lz);
+      leg.castShadow = true;
+      this.group.add(leg);
+    });
+    this.mat = mat;
+  }
+
+  reward() {
+    this.traits.friendliness = clamp(this.traits.friendliness + 0.15, 0, 1);
+    this.traits.aggression   = clamp(this.traits.aggression   - 0.08, 0, 1);
+    this.traits.laziness     = clamp(this.traits.laziness     - 0.05, 0, 1);
+    this._pulse(0xffee44); playReward();
+    showMiracleFlash('Creature Rewarded ✦', '#ffd700');
+    changeAlignment(0.03);
+    this._updateUI();
+  }
+
+  punish() {
+    this.traits.aggression   = clamp(this.traits.aggression   + 0.15, 0, 1);
+    this.traits.friendliness = clamp(this.traits.friendliness - 0.08, 0, 1);
+    this._pulse(0xff2200); playPunish();
+    showMiracleFlash('Creature Punished', '#cc4444');
+    changeAlignment(-0.03);
+    this._updateUI();
+  }
+
+  _pulse(color) {
+    const orig = this.mat.emissive.clone();
+    this.mat.emissive.setHex(color);
+    setTimeout(() => this.mat.emissive.copy(orig), 300);
+  }
+
+  _updateUI() {
+    document.querySelector('#bar-friendly .trait-fill').style.width = (this.traits.friendliness * 100) + '%';
+    document.querySelector('#bar-aggress  .trait-fill').style.width = (this.traits.aggression   * 100) + '%';
+    document.querySelector('#bar-lazy     .trait-fill').style.width = (this.traits.laziness     * 100) + '%';
+  }
+
+  learnMiracle(type) {
+    if (!this.learnedMiracles.has(type)) {
+      this.learnedMiracles.add(type);
+      showMiracleFlash(`Creature learned ${type}!`, '#aaffaa');
+    }
+  }
+
+  update(dt) {
+    // Wander / follow player
+    const toHand = worldMouse.clone().sub(this.group.position);
+    const distToHand = toHand.length();
+
+    if (this.state === 'wander') {
+      const tp = this.target;
+      const dir = new THREE.Vector3(tp.x - this.group.position.x, 0, tp.z - this.group.position.z);
+      const dist = dir.length();
+      const lazySlow = lerp(1.0, 2.5, 1 - this.traits.laziness);
+      if (dist > 1.5) {
+        dir.normalize();
+        this.group.position.x += dir.x * lazySlow * dt;
+        this.group.position.z += dir.z * lazySlow * dt;
+        this.group.rotation.y = Math.atan2(dir.x, dir.z);
+      } else {
+        // New wander target inside influence radius
+        const angle = Math.random() * Math.PI * 2;
+        const r = rand(5, Math.min(influenceRadius, 50));
+        this.target.set(Math.cos(angle) * r, 0, Math.sin(angle) * r);
+      }
+    }
+
+    // Auto-cast learned miracles
+    if (this.learnedMiracles.size > 0 && this.traits.laziness < 0.8) {
+      this.autocastTimer -= dt;
+      if (this.autocastTimer <= 0) {
+        this.autocastTimer = rand(20, 35);
+        const arr = [...this.learnedMiracles];
+        const chosen = arr[Math.floor(Math.random() * arr.length)];
+        castMiracleAt(chosen, this.group.position.clone().add(v3(rand(-5,5), 0, rand(-5,5))), false);
+        this._pulse(0x88ffaa);
+        showMiracleFlash(`Creature casts ${chosen}!`, '#88ffcc');
+      }
+    }
+
+    // Terrain snap
+    const h = getTerrainHeight(this.group.position.x, this.group.position.z) + 1.5;
+    this.group.position.y = lerp(this.group.position.y, h, 0.15);
+
+    // Colour by trait
+    const t = this.traits.friendliness;
+    const evil = this.traits.aggression;
+    this.mat.color.setRGB(lerp(0.7, 0.9, t), lerp(0.3, 0.7, t * (1-evil)), lerp(0.1, 0.2, t));
+    this.mat.emissive.setRGB(evil * 0.3, t * 0.05, 0);
+
+    document.getElementById('creature-status').textContent =
+      this.learnedMiracles.size > 0
+        ? 'Knows: ' + [...this.learnedMiracles].join(', ')
+        : 'Watching and learning…';
+  }
+}
+
+// ─── Particles ────────────────────────────────────────────────────────────────
+class Particle {
+  constructor(pos, vel, color, life, size = 0.3) {
+    this.pos  = pos.clone();
+    this.vel  = vel.clone();
+    this.life = life;
+    this.maxLife = life;
+    this.size = size;
+    const geo = new THREE.SphereGeometry(size, 4, 4);
+    const mat = new THREE.MeshStandardMaterial({
+      color, emissive: color, emissiveIntensity: 1.5,
+      transparent: true, opacity: 1,
+    });
+    this.mesh = new THREE.Mesh(geo, mat);
+    this.mesh.position.copy(pos);
+    scene.add(this.mesh);
+  }
+  update(dt) {
+    this.life -= dt;
+    this.vel.y -= 4 * dt; // gravity
+    this.pos.addScaledVector(this.vel, dt);
+    this.mesh.position.copy(this.pos);
+    const t = this.life / this.maxLife;
+    this.mesh.material.opacity = t;
+    this.mesh.scale.setScalar(t * 0.8 + 0.2);
+    return this.life > 0;
+  }
+  dispose() { scene.remove(this.mesh); this.mesh.geometry.dispose(); this.mesh.material.dispose(); }
+}
+
+function spawnBurst(pos, color, count = 20, speed = 8, size = 0.25, life = 1.2) {
+  for (let i = 0; i < count; i++) {
+    const vel = new THREE.Vector3(rand(-1,1), rand(0.5,2), rand(-1,1)).normalize().multiplyScalar(rand(speed*0.4, speed));
+    particles.push(new Particle(pos, vel, color, rand(life*0.6, life), size));
+  }
+}
+
+// ─── Ambient sprites (birds / bats) ──────────────────────────────────────────
+function spawnAmbientSprites() {
+  for (let i = 0; i < 8; i++) {
+    const geo = new THREE.PlaneGeometry(0.8, 0.5);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.7 });
+    const m = new THREE.Mesh(geo, mat);
+    m.userData.phase = Math.random() * Math.PI * 2;
+    m.userData.r = rand(20, 60);
+    m.userData.spd = rand(0.4, 0.9);
+    m.userData.h = rand(20, 40);
+    scene.add(m);
+    ambientSprites.push(m);
+  }
+}
+
+function updateAmbientSprites(t) {
+  const goodMode = alignment > 0.25;
+  const evilMode = alignment < -0.25;
+  if (!goodMode && !evilMode) {
+    ambientSprites.forEach(s => { s.visible = false; }); return;
+  }
+  ambientSprites.forEach((s, i) => {
+    s.visible = true;
+    const phase = s.userData.phase + t * s.userData.spd;
+    s.position.set(
+      Math.cos(phase) * s.userData.r,
+      s.userData.h + Math.sin(phase * 2) * 3,
+      Math.sin(phase) * s.userData.r
+    );
+    s.rotation.y = phase + Math.PI / 2;
+    if (goodMode) s.material.color.setHex(0xfff4cc);
+    else          s.material.color.setHex(0x220011);
+  });
+}
+
+// ─── Miracles ────────────────────────────────────────────────────────────────
+function castMiracleAt(type, pos, fromPlayer = true) {
+  if (fromPlayer) {
+    miracleCastCount[type] = (miracleCastCount[type] || 0) + 1;
+    if (miracleCastCount[type] >= 3 && creature) creature.learnMiracle(type);
+  }
+
+  if (type === 'fireball') {
+    castFireball(pos, fromPlayer);
+  } else if (type === 'food') {
+    spawnFood(pos);
+    if (fromPlayer) changeAlignment(0.05);
+    spawnBurst(pos, 0xffcc44, 15, 6, 0.2, 0.8);
+    playFood();
+    showMiracleFlash('Food', '#ffcc44');
+  } else if (type === 'heal') {
+    castHeal(pos);
+  } else if (type === 'wood') {
+    spawnLog(pos);
+    if (fromPlayer) changeAlignment(0.03);
+    spawnBurst(pos, 0x885522, 12, 5, 0.2, 0.6);
+    playWood();
+    showMiracleFlash('Wood', '#aa7744');
+  }
+}
+
+function castFireball(targetPos, fromPlayer) {
+  playFireball();
+  if (fromPlayer) changeAlignment(-0.12);
+  // Spawn fireball projectile
+  const geo = new THREE.SphereGeometry(0.7, 8, 8);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xff4400, emissive: 0xff2200, emissiveIntensity: 3, roughness: 0.2 });
+  const ball = new THREE.Mesh(geo, mat);
+  const startPos = worldMouse.clone().add(v3(0, 15, 0));
+  ball.position.copy(startPos);
+  scene.add(ball);
+  const dir = targetPos.clone().sub(startPos).normalize();
+  ball.userData.vel   = dir.multiplyScalar(30);
+  ball.userData.type  = 'fireball';
+  ball.userData.pos   = targetPos;
+  projectiles.push(ball);
+  showMiracleFlash('Fireball!', '#ff4400');
+}
+
+function castHeal(pos) {
+  playHeal();
+  changeAlignment(0.10);
+  spawnBurst(pos, 0x44ff88, 30, 7, 0.2, 1.5);
+  // Heal nearby villagers
+  for (const v of villagers) {
+    if (!v.alive) continue;
+    if (v.mesh.position.distanceTo(pos) < 18) {
+      v.hunger = Math.max(0, v.hunger - 0.6);
+      v.fear   = 0;
+      spawnBurst(v.mesh.position.clone().add(new THREE.Vector3(0,1,0)), 0x88ffaa, 5, 3, 0.15, 0.6);
+    }
+  }
+  showMiracleFlash('Heal', '#44ff88');
+}
+
+function spawnFood(pos) {
+  const h = getTerrainHeight(pos.x, pos.z);
+  const geo = new THREE.CylinderGeometry(0.6, 0.8, 0.6, 8);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xcc8833, roughness: 0.9 });
+  const food = new THREE.Mesh(geo, mat);
+  food.position.set(pos.x, h + 0.3, pos.z);
+  food.castShadow = true;
+  food.userData.type = 'food';
+  food.userData.bites = 0;
+  scene.add(food);
+  foodPiles.push(food);
+}
+
+function spawnLog(pos) {
+  const h = getTerrainHeight(pos.x, pos.z);
+  const geo = new THREE.CylinderGeometry(0.3, 0.3, 2.5, 6);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x8B6914, roughness: 0.9 });
+  const log = new THREE.Mesh(geo, mat);
+  log.rotation.z = Math.PI / 2;
+  log.position.set(pos.x, h + 0.4, pos.z);
+  log.castShadow = true;
+  log.userData.type = 'log';
+  log.userData.vel  = new THREE.Vector3();
+  scene.add(log);
+}
+
+// ─── Alignment ───────────────────────────────────────────────────────────────
+function changeAlignment(delta) {
+  alignment = clamp(alignment + delta, -1, 1);
+  updateAlignmentUI();
+  updateWorldVisuals();
+  updateHandColor();
+}
+
+function updateAlignmentUI() {
+  const pct = ((alignment + 1) / 2 * 100).toFixed(1);
+  document.getElementById('align-thumb').style.left = pct + '%';
+}
+
+function updateFaithUI() {
+  const pct = Math.min(100, (faithPoints / 500) * 100).toFixed(1);
+  document.getElementById('faith-fill').style.height = pct + '%';
+}
+
+function updateWorldVisuals() {
+  const t = (alignment + 1) / 2; // 0=evil 1=good
+  const skyGood = new THREE.Color(0.55, 0.75, 0.95);
+  const skyNeutral = new THREE.Color(0.35, 0.5, 0.7);
+  const skyEvil = new THREE.Color(0.12, 0.08, 0.18);
+  let skyColor;
+  if (t >= 0.5) skyColor = skyNeutral.clone().lerp(skyGood, (t - 0.5) * 2);
+  else          skyColor = skyEvil.clone().lerp(skyNeutral, t * 2);
+  scene.background = skyColor;
+  scene.fog.color.copy(skyColor);
+
+  // Sun color
+  const sunGood = new THREE.Color(1.1, 1.0, 0.85);
+  const sunEvil = new THREE.Color(0.7, 0.3, 0.2);
+  const sunColor = sunEvil.clone().lerp(sunGood, t);
+  scene.children.forEach(c => { if (c.isDirectionalLight) c.color.copy(sunColor); });
+
+  // Terrain + water alignment uniform
+  if (terrainMesh) terrainMesh.material.uniforms.uAlignment.value = alignment;
+  if (waterMesh)   waterMesh.material.uniforms.uAlignment.value   = alignment;
+
+  // Bloom strength
+  if (composer && composer.passes[1]) {
+    composer.passes[1].strength = 0.5 + Math.abs(alignment) * 0.5;
+  }
+}
+
+// ─── Gesture recognition ─────────────────────────────────────────────────────
+function initGestureCanvas() {
+  gestureCanvas = document.getElementById('gesture-canvas');
+  gestureCtx2d  = gestureCanvas.getContext('2d');
+  resizeGestureCanvas();
+}
+
+function resizeGestureCanvas() {
+  gestureCanvas.width  = window.innerWidth;
+  gestureCanvas.height = window.innerHeight;
+}
+
+function recognizeGesture(path) {
+  if (path.length < 8) return null;
+  // Normalize path to [0,1]^2
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  path.forEach(p => { minX=Math.min(minX,p.x); maxX=Math.max(maxX,p.x); minY=Math.min(minY,p.y); maxY=Math.max(maxY,p.y); });
+  const w = maxX - minX || 1, h = maxY - minY || 1;
+  const norm = path.map(p => ({ x: (p.x - minX) / w, y: (p.y - minY) / h }));
+
+  // Circle: start and end are close, path stays near radius from centroid
+  const cx = norm.reduce((s,p)=>s+p.x,0)/norm.length;
+  const cy = norm.reduce((s,p)=>s+p.y,0)/norm.length;
+  const radii = norm.map(p => Math.sqrt((p.x-cx)**2+(p.y-cy)**2));
+  const meanR  = radii.reduce((a,b)=>a+b,0)/radii.length;
+  const circleScore = 1 - radii.reduce((s,r)=>s+Math.abs(r-meanR),0)/radii.length/meanR;
+  const closeEnds = Math.hypot(norm[0].x-norm[norm.length-1].x, norm[0].y-norm[norm.length-1].y) < 0.35;
+  if (circleScore > 0.72 && closeEnds && meanR > 0.2) return 'heal';
+
+  // V-shape (fireball): detect sharp turn at the bottom
+  const mid = Math.floor(norm.length / 2);
+  const startY = norm[0].y, midY = norm[mid].y, endY = norm[norm.length-1].y;
+  const midX = norm[mid].x;
+  const isVShape = (midY > startY + 0.35) && (midY > endY + 0.35) &&
+                   Math.abs(norm[0].x - norm[norm.length-1].x) < 0.5;
+  if (isVShape) return 'fireball';
+
+  // Spiral: monotonically increasing angle from centroid
+  const angles = norm.map(p => Math.atan2(p.y - cy, p.x - cx));
+  let diffs = 0, monotoneCount = 0;
+  for (let i = 1; i < angles.length; i++) {
+    let d = angles[i] - angles[i-1];
+    if (d > Math.PI)  d -= 2*Math.PI;
+    if (d < -Math.PI) d += 2*Math.PI;
+    diffs += d;
+    if (Math.abs(d) < 0.4) monotoneCount++;
+  }
+  if (Math.abs(diffs) > Math.PI * 2.5 && monotoneCount < norm.length * 0.3) return 'food';
+
+  // Zigzag (wood): multiple left-right direction reversals
+  let reversals = 0;
+  for (let i = 2; i < norm.length; i++) {
+    const d1 = norm[i-1].x - norm[i-2].x;
+    const d2 = norm[i].x   - norm[i-1].x;
+    if (d1 * d2 < -0.001) reversals++;
+  }
+  if (reversals >= 3 && w > 0.4 * h) return 'wood';
+
+  return null;
+}
+
+function drawGestureTrail() {
+  gestureCtx2d.clearRect(0, 0, gestureCanvas.width, gestureCanvas.height);
+  if (!gestureActive || gesturePath.length < 2) return;
+  gestureCtx2d.beginPath();
+  gestureCtx2d.strokeStyle = `rgba(255,255,200,0.85)`;
+  gestureCtx2d.lineWidth = 3;
+  gestureCtx2d.shadowBlur = 12;
+  gestureCtx2d.shadowColor = '#ffffaa';
+  gestureCtx2d.moveTo(gesturePath[0].x, gesturePath[0].y);
+  for (let i = 1; i < gesturePath.length; i++) {
+    gestureCtx2d.lineTo(gesturePath[i].x, gesturePath[i].y);
+  }
+  gestureCtx2d.stroke();
+}
+
+// ─── God-hand picking ─────────────────────────────────────────────────────────
+function tryGrab() {
+  const pickables = [];
+  scene.traverse(obj => {
+    if (obj.userData.type === 'villager' || obj.userData.type === 'food' || obj.userData.type === 'log') {
+      pickables.push(obj);
+    }
+  });
+  let best = null, bestD = 5;
+  for (const obj of pickables) {
+    const d = obj.position.distanceTo(worldMouse);
+    if (d < bestD) { bestD = d; best = obj; }
+  }
+  if (best) {
+    grabbedObject = best;
+    grabOffset.copy(best.position).sub(worldMouse);
+    playGrab();
+    if (best.userData.type === 'villager' && best.userData.agent) {
+      best.userData.agent.state = 'carried';
+    }
+  }
+}
+
+function releaseGrab() {
+  if (!grabbedObject) return;
+  const throwVel = worldMouse.clone().sub(prevWorldMouse).multiplyScalar(15);
+  throwVel.y = Math.max(throwVel.y, 5);
+  grabbedObject.userData.vel = throwVel;
+  grabbedObject.userData.thrown = true;
+  grabbedObject.userData.throwTimer = 0;
+  playThrow();
+
+  if (grabbedObject.userData.type === 'villager' && grabbedObject.userData.agent) {
+    grabbedObject.userData.agent.state = 'wander';
+    grabbedObject.userData.agent.timer = rand(2, 4);
+  }
+  grabbedObject = null;
+}
+
+// ─── Projectile update ────────────────────────────────────────────────────────
+function updateProjectiles(dt) {
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    p.userData.vel.y -= 12 * dt;
+    p.position.addScaledVector(p.userData.vel, dt);
+
+    // Spin
+    p.rotation.x += dt * 3; p.rotation.y += dt * 2;
+
+    // Sparks trail
+    if (Math.random() < 0.4) {
+      const sp = new Particle(p.position.clone(), v3(rand(-2,2), rand(0,3), rand(-2,2)), 0xff6600, 0.3, 0.12);
+      particles.push(sp);
+    }
+
+    const h = getTerrainHeight(p.position.x, p.position.z);
+    const hitGround = p.position.y <= h + 0.5;
+    const hitWater  = p.position.y <= SEA_LEVEL && Math.sqrt(p.position.x**2 + p.position.z**2) > ISLAND_RADIUS * 0.85;
+    if (hitGround || hitWater) {
+      spawnBurst(p.position, 0xff4400, 40, 12, 0.3, 1.8);
+      spawnBurst(p.position, 0xffcc00, 20, 8, 0.18, 1.0);
+      // Scare/damage nearby villagers
+      for (const vill of villagers) {
+        if (!vill.alive) continue;
+        const d = vill.mesh.position.distanceTo(p.position);
+        if (d < 8) {
+          vill.fear = 1;
+          vill.state = 'flee';
+          if (d < 3 && vill.alive) {
+            vill.alive = false;
+            vill.mesh.visible = false;
+            changeAlignment(-0.05);
+          }
+        }
+      }
+      scene.remove(p); p.geometry.dispose(); p.material.dispose();
+      projectiles.splice(i, 1);
+    }
+  }
+}
+
+// ─── Thrown-object physics ───────────────────────────────────────────────────
+function updateThrownObjects(dt) {
+  scene.traverse(obj => {
+    if (!obj.userData.thrown) return;
+    obj.userData.throwTimer = (obj.userData.throwTimer || 0) + dt;
+    obj.userData.vel = obj.userData.vel || new THREE.Vector3();
+    obj.userData.vel.y -= 18 * dt;
+    obj.position.addScaledVector(obj.userData.vel, dt);
+
+    const h = getTerrainHeight(obj.position.x, obj.position.z);
+    if (obj.position.y <= h + 0.5) {
+      obj.position.y = h + 0.5;
+      obj.userData.vel.multiplyScalar(0.3);
+      obj.userData.vel.y = 0;
+      if (obj.userData.vel.length() < 0.5) {
+        obj.userData.thrown = false;
+        obj.userData.vel = new THREE.Vector3();
+      }
+      if (obj.userData.type === 'villager') { spawnBurst(obj.position, 0xaabbcc, 5, 3, 0.1, 0.3); }
+    }
+
+    // Villager thrown off island → alignment penalty
+    const r = Math.sqrt(obj.position.x**2 + obj.position.z**2);
+    if (r > ISLAND_RADIUS + 5 && obj.userData.type === 'villager' && !obj.userData.lostAtSea) {
+      obj.userData.lostAtSea = true;
+      changeAlignment(-0.15);
+      setTimeout(() => { scene.remove(obj); }, 3000);
+    }
+  });
+}
+
+// ─── Faith accumulation ───────────────────────────────────────────────────────
+function updateFaith(dt) {
+  const alive = villagers.filter(v => v.alive);
+  if (alive.length === 0) return;
+  const avgHappiness = alive.reduce((s, v) => s + (1 - v.hunger), 0) / alive.length;
+  faithPoints += avgHappiness * 2 * dt;
+  influenceRadius = clamp(INFLUENCE_BASE + faithPoints * 0.08, INFLUENCE_BASE, INFLUENCE_MAX);
+  updateInfluenceRing();
+  updateFaithUI();
+}
+
+// ─── Miracle flash ────────────────────────────────────────────────────────────
+function showMiracleFlash(text, color) {
+  const el = document.getElementById('miracle-flash');
+  el.textContent = text;
+  el.style.color = color;
+  el.style.textShadow = `0 0 20px ${color}`;
+  el.style.opacity = '1';
+  setTimeout(() => { el.style.opacity = '0'; }, 1400);
+}
+
+// ─── Raycasting ───────────────────────────────────────────────────────────────
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+function updateWorldMouse(event) {
+  prevWorldMouse.copy(worldMouse);
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.set(
+    ((event.clientX - rect.left) / rect.width)  *  2 - 1,
+    ((event.clientY - rect.top)  / rect.height) * -2 + 1
+  );
+  raycaster.setFromCamera(mouse, camera);
+
+  // Try terrain first
+  const hits = raycaster.intersectObject(terrainMesh, false);
+  if (hits.length > 0) {
+    worldMouse.copy(hits[0].point);
+  } else {
+    // Fall back to ground plane
+    const t = new THREE.Vector3();
+    raycaster.ray.intersectPlane(groundPlane, t);
+    if (t) worldMouse.copy(t);
+  }
+  worldMouse.y = Math.max(worldMouse.y, getTerrainHeight(worldMouse.x, worldMouse.z));
+}
+
+// ─── Input handlers ───────────────────────────────────────────────────────────
+function initInput() {
+  const canvas = renderer.domElement;
+
+  canvas.addEventListener('mousemove', e => {
+    updateWorldMouse(e);
+    if (grabbedObject) {
+      grabbedObject.position.copy(worldMouse).add(new THREE.Vector3(0, 2, 0));
+    }
+    if (gestureActive) {
+      gesturePath.push({ x: e.clientX, y: e.clientY });
+    }
+    // Move hand mesh
+    if (godHand) {
+      godHand.position.set(worldMouse.x, worldMouse.y + 3.5, worldMouse.z);
+    }
+  });
+
+  canvas.addEventListener('mousedown', e => {
+    e.preventDefault();
+    if (e.button === 0) { // Left click — grab
+      tryGrab();
+    } else if (e.button === 2) { // Right click — gesture
+      gestureActive = true;
+      gesturePath = [{ x: e.clientX, y: e.clientY }];
+    }
+  });
+
+  canvas.addEventListener('mouseup', e => {
+    e.preventDefault();
+    if (e.button === 0) {
+      releaseGrab();
+    } else if (e.button === 2) {
+      gestureActive = false;
+      gestureCtx2d.clearRect(0, 0, gestureCanvas.width, gestureCanvas.height);
+      const type = recognizeGesture(gesturePath);
+      if (type) {
+        castMiracleAt(type, worldMouse.clone(), true);
+      } else if (gesturePath.length > 5) {
+        showMiracleFlash('?', '#999');
+      }
+      gesturePath = [];
+    }
+  });
+
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  window.addEventListener('keydown', e => {
+    const key = e.key.toLowerCase();
+    if (key === '1') castMiracleAt('fireball', worldMouse.clone(), true);
+    if (key === '2') castMiracleAt('food', worldMouse.clone(), true);
+    if (key === '3') castMiracleAt('heal', worldMouse.clone(), true);
+    if (key === '4') castMiracleAt('wood', worldMouse.clone(), true);
+
+    if ((key === 'r' || key === 'p') && creature) {
+      const d = godHand.position.distanceTo(creature.group.position);
+      if (d < 10) {
+        if (key === 'r') creature.reward();
+        if (key === 'p') creature.punish();
+      } else {
+        showMiracleFlash('Move closer to creature', '#aaaaaa');
+      }
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
+    resizeGestureCanvas();
+  });
+}
+
+// ─── Scene setup ─────────────────────────────────────────────────────────────
+function initScene() {
+  renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0.45, 0.65, 0.85);
+  scene.fog = new THREE.Fog(0x7ab0d4, 120, 280);
+
+  camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 600);
+  camera.position.set(0, 85, 130);
+  camera.lookAt(0, 0, 0);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.06;
+  controls.minDistance = 30;
+  controls.maxDistance = 220;
+  controls.maxPolarAngle = Math.PI * 0.46;
+  controls.mouseButtons = { RIGHT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, LEFT: null };
+  controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_PAN };
+
+  // Lights
+  const sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
+  sun.position.set(60, 100, 50);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = 400;
+  sun.shadow.camera.left = sun.shadow.camera.bottom = -130;
+  sun.shadow.camera.right = sun.shadow.camera.top = 130;
+  sun.shadow.bias = -0.001;
+  scene.add(sun);
+
+  const ambient = new THREE.AmbientLight(0x8899bb, 0.7);
+  scene.add(ambient);
+
+  const hemi = new THREE.HemisphereLight(0x87ceeb, 0x44663c, 0.5);
+  scene.add(hemi);
+
+  // Post-processing
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloom = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    0.55, 0.4, 0.5
+  );
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+}
+
+// ─── Tutorial fade ─────────────────────────────────────────────────────────────
+function initTutorial() {
+  setTimeout(() => {
+    document.getElementById('tutorial').style.opacity = '0';
+  }, 5000);
+}
+
+// ─── Main game loop ──────────────────────────────────────────────────────────
+function gameLoop() {
+  requestAnimationFrame(gameLoop);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const elapsed = clock.getElapsedTime();
+
+  controls.update();
+
+  // Water animation
+  if (waterMesh) waterMesh.material.uniforms.uTime.value = elapsed;
+
+  // Villager updates
+  for (const v of villagers) v.update(dt);
+
+  // Creature
+  if (creature) creature.update(dt);
+
+  // Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    if (!particles[i].update(dt)) {
+      particles[i].dispose();
+      particles.splice(i, 1);
+    }
+  }
+
+  // Projectiles
+  updateProjectiles(dt);
+
+  // Thrown objects
+  updateThrownObjects(dt);
+
+  // Faith
+  updateFaith(dt);
+
+  // Ambient sprites
+  updateAmbientSprites(elapsed);
+
+  // Hand bobbing
+  if (godHand && !grabbedObject) {
+    godHand.position.y = worldMouse.y + 3.5 + Math.sin(elapsed * 2.5) * 0.3;
+    godHand.rotation.z = Math.sin(elapsed * 1.2) * 0.05;
+  }
+
+  // Gesture trail
+  drawGestureTrail();
+
+  composer.render();
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+function init() {
+  initScene();
+  buildTerrain();
+  buildWater();
+  buildTrees();
+  buildHand();
+  buildVillage();
+  creature = new CreatureAgent();
+  spawnAmbientSprites();
+  initGestureCanvas();
+  initInput();
+  initTutorial();
+  updateAlignmentUI();
+  updateFaithUI();
+  updateHandColor();
+
+  // Initial food so villagers don't starve immediately
+  spawnFood(new THREE.Vector3(VILLAGE_POS.x + 5, 0, VILLAGE_POS.z - 4));
+  spawnFood(new THREE.Vector3(VILLAGE_POS.x - 6, 0, VILLAGE_POS.z + 3));
+
+  gameLoop();
+}
+
+init();
+</script>
+</body>
+</html>
