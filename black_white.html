@@ -170,22 +170,16 @@ canvas { display: block; cursor: none; }
 
 <canvas id="c"></canvas>
 
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/"
-  }
-}
-</script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
 
-<script type="module">
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+<script>
 
 // ─── Noise ───────────────────────────────────────────────────────────────────
 function noise2D(x, z) {
@@ -1346,7 +1340,7 @@ function initScene() {
   camera.position.set(0, 85, 130);
   camera.lookAt(0, 0, 0);
 
-  controls = new OrbitControls(camera, renderer.domElement);
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
   controls.minDistance = 30;
@@ -1374,14 +1368,13 @@ function initScene() {
   scene.add(hemi);
 
   // Post-processing
-  composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(
+  composer = new THREE.EffectComposer(renderer);
+  composer.addPass(new THREE.RenderPass(scene, camera));
+  const bloom = new THREE.UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
     0.55, 0.4, 0.5
   );
   composer.addPass(bloom);
-  composer.addPass(new OutputPass());
 }
 
 // ─── Tutorial fade ─────────────────────────────────────────────────────────────
