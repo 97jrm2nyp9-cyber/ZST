@@ -6,18 +6,71 @@
 <title>Black &amp; White</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #000; overflow: hidden; font-family: 'Georgia', serif; }
-canvas { display: block; cursor: none; }
+body { background: #000; overflow: hidden; font-family: 'Georgia', serif; touch-action: none; }
+canvas { display: block; }
+@media (pointer: fine) { canvas { cursor: none; } }
 
 #ui {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   pointer-events: none; z-index: 10;
 }
 
+/* Touch miracle buttons */
+#miracle-grid {
+  position: absolute; bottom: 90px; right: 12px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  pointer-events: auto;
+}
+.mbtn {
+  width: 64px; height: 64px; border-radius: 12px;
+  border: 1.5px solid rgba(255,255,255,0.3);
+  background: rgba(0,0,0,0.55); color: #fff;
+  font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; cursor: pointer; user-select: none; -webkit-user-select: none;
+  transition: background 0.1s, transform 0.1s;
+}
+.mbtn:active { background: rgba(255,255,255,0.2); transform: scale(0.93); }
+.mbtn span { font-size: 22px; }
+
+/* Creature buttons */
+#creature-btns {
+  position: absolute; bottom: 90px; left: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+  pointer-events: auto;
+}
+.cbtn {
+  width: 64px; height: 64px; border-radius: 12px;
+  border: 1.5px solid rgba(255,255,255,0.3);
+  background: rgba(0,0,0,0.55); color: #fff;
+  font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; cursor: pointer; user-select: none; -webkit-user-select: none;
+  transition: background 0.1s, transform 0.1s;
+}
+.cbtn:active { transform: scale(0.93); }
+#btn-reward { border-color: rgba(255,220,0,0.5); }
+#btn-reward:active { background: rgba(255,200,0,0.3); }
+#btn-punish { border-color: rgba(255,60,60,0.5); }
+#btn-punish:active { background: rgba(255,60,60,0.3); }
+
+/* Draw spell button */
+#draw-btn {
+  position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%);
+  width: 100px; height: 44px; border-radius: 22px;
+  border: 1.5px solid rgba(255,255,200,0.4);
+  background: rgba(0,0,0,0.55); color: rgba(255,255,200,0.85);
+  font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; user-select: none; -webkit-user-select: none;
+  pointer-events: auto; transition: background 0.1s;
+}
+#draw-btn.active { background: rgba(255,255,150,0.25); border-color: rgba(255,255,150,0.8); }
+
 /* Alignment bar */
 #align-bar {
-  position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
-  width: 260px; text-align: center;
+  position: absolute; bottom: 148px; left: 50%; transform: translateX(-50%);
+  width: 220px; text-align: center;
 }
 #align-label {
   color: rgba(255,255,255,0.7); font-size: 11px; letter-spacing: 2px;
@@ -153,16 +206,22 @@ canvas { display: block; cursor: none; }
     <div id="faith-track"><div id="faith-fill"></div></div>
   </div>
 
-  <div id="controls">
-    <b style="color:rgba(255,255,255,0.7)">Controls</b><br>
-    LMB — pick up &amp; throw<br>
-    RMB drag — gesture spell<br>
-    1 Fireball &nbsp; 2 Food<br>
-    3 Heal &nbsp;&nbsp;&nbsp;&nbsp; 4 Wood<br>
-    R near creature — reward<br>
-    P near creature — punish<br>
-    Scroll — zoom
+  <!-- Touch miracle buttons -->
+  <div id="miracle-grid">
+    <button class="mbtn" id="mbtn-fireball"><span>🔥</span>Fireball</button>
+    <button class="mbtn" id="mbtn-food"><span>🍎</span>Food</button>
+    <button class="mbtn" id="mbtn-heal"><span>💚</span>Heal</button>
+    <button class="mbtn" id="mbtn-wood"><span>🪵</span>Wood</button>
   </div>
+
+  <!-- Creature buttons -->
+  <div id="creature-btns">
+    <button class="cbtn" id="btn-reward"><span style="font-size:22px">⭐</span>Reward</button>
+    <button class="cbtn" id="btn-punish"><span style="font-size:22px">👊</span>Punish</button>
+  </div>
+
+  <!-- Draw spell button -->
+  <button id="draw-btn">✦ Draw Spell</button>
 
   <div id="miracle-flash"></div>
   <canvas id="gesture-canvas"></canvas>
@@ -1099,7 +1158,7 @@ function tryGrab() {
       pickables.push(obj);
     }
   });
-  let best = null, bestD = 5;
+  let best = null, bestD = 14;
   for (const obj of pickables) {
     const d = obj.position.distanceTo(worldMouse);
     if (d < bestD) { bestD = d; best = obj; }
@@ -1226,21 +1285,20 @@ function showMiracleFlash(text, color) {
 
 // ─── Raycasting ───────────────────────────────────────────────────────────────
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-function updateWorldMouse(event) {
+
+// ─── Shared pointer→world helper (works for mouse & touch) ───────────────────
+function updateWorldFromClient(clientX, clientY) {
   prevWorldMouse.copy(worldMouse);
   const rect = renderer.domElement.getBoundingClientRect();
   mouse.set(
-    ((event.clientX - rect.left) / rect.width)  *  2 - 1,
-    ((event.clientY - rect.top)  / rect.height) * -2 + 1
+    ((clientX - rect.left) / rect.width)  *  2 - 1,
+    ((clientY - rect.top)  / rect.height) * -2 + 1
   );
   raycaster.setFromCamera(mouse, camera);
-
-  // Try terrain first
   const hits = raycaster.intersectObject(terrainMesh, false);
   if (hits.length > 0) {
     worldMouse.copy(hits[0].point);
   } else {
-    // Fall back to ground plane
     const t = new THREE.Vector3();
     raycaster.ray.intersectPlane(groundPlane, t);
     if (t) worldMouse.copy(t);
@@ -1252,64 +1310,110 @@ function updateWorldMouse(event) {
 function initInput() {
   const canvas = renderer.domElement;
 
+  // ── Mouse ──────────────────────────────────────────────────────────────────
   canvas.addEventListener('mousemove', e => {
-    updateWorldMouse(e);
-    if (grabbedObject) {
-      grabbedObject.position.copy(worldMouse).add(new THREE.Vector3(0, 2, 0));
-    }
-    if (gestureActive) {
-      gesturePath.push({ x: e.clientX, y: e.clientY });
-    }
-    // Move hand mesh
-    if (godHand) {
-      godHand.position.set(worldMouse.x, worldMouse.y + 3.5, worldMouse.z);
-    }
+    updateWorldFromClient(e.clientX, e.clientY);
+    if (grabbedObject) grabbedObject.position.copy(worldMouse).add(new THREE.Vector3(0, 2, 0));
+    if (gestureActive) gesturePath.push({ x: e.clientX, y: e.clientY });
+    if (godHand) godHand.position.set(worldMouse.x, worldMouse.y + 3.5, worldMouse.z);
   });
 
   canvas.addEventListener('mousedown', e => {
     e.preventDefault();
-    if (e.button === 0) { // Left click — grab
-      tryGrab();
-    } else if (e.button === 2) { // Right click — gesture
-      gestureActive = true;
-      gesturePath = [{ x: e.clientX, y: e.clientY }];
-    }
+    if (e.button === 0) tryGrab();
+    else if (e.button === 2) { gestureActive = true; gesturePath = [{ x: e.clientX, y: e.clientY }]; }
   });
 
   canvas.addEventListener('mouseup', e => {
     e.preventDefault();
-    if (e.button === 0) {
-      releaseGrab();
-    } else if (e.button === 2) {
-      gestureActive = false;
-      gestureCtx2d.clearRect(0, 0, gestureCanvas.width, gestureCanvas.height);
-      const type = recognizeGesture(gesturePath);
-      if (type) {
-        castMiracleAt(type, worldMouse.clone(), true);
-      } else if (gesturePath.length > 5) {
-        showMiracleFlash('?', '#999');
-      }
-      gesturePath = [];
-    }
+    if (e.button === 0) { releaseGrab(); }
+    else if (e.button === 2) { finishGesture(); }
   });
 
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
+  // ── Touch ──────────────────────────────────────────────────────────────────
+  let drawMode = false;
+  const drawBtn = document.getElementById('draw-btn');
+  drawBtn.addEventListener('touchstart', e => {
+    e.stopPropagation(); e.preventDefault();
+    drawMode = true; drawBtn.classList.add('active');
+  }, { passive: false });
+  drawBtn.addEventListener('touchend', e => {
+    e.stopPropagation(); e.preventDefault();
+    drawMode = false; drawBtn.classList.remove('active');
+    finishGesture();
+  }, { passive: false });
+
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      updateWorldFromClient(t.clientX, t.clientY);
+      if (godHand) godHand.position.set(worldMouse.x, worldMouse.y + 3.5, worldMouse.z);
+      if (drawMode) {
+        gestureActive = true;
+        gesturePath = [{ x: t.clientX, y: t.clientY }];
+      } else {
+        tryGrab();
+      }
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      updateWorldFromClient(t.clientX, t.clientY);
+      if (godHand) godHand.position.set(worldMouse.x, worldMouse.y + 3.5, worldMouse.z);
+      if (grabbedObject) grabbedObject.position.copy(worldMouse).add(new THREE.Vector3(0, 2, 0));
+      if (gestureActive) gesturePath.push({ x: t.clientX, y: t.clientY });
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    if (!drawMode) releaseGrab();
+  }, { passive: false });
+
+  // ── On-screen miracle buttons ──────────────────────────────────────────────
+  function miracleBtn(id, type) {
+    const el = document.getElementById(id);
+    ['touchstart','mousedown'].forEach(ev => {
+      el.addEventListener(ev, e => {
+        e.stopPropagation(); e.preventDefault();
+        castMiracleAt(type, worldMouse.clone(), true);
+      }, { passive: false });
+    });
+  }
+  miracleBtn('mbtn-fireball', 'fireball');
+  miracleBtn('mbtn-food',     'food');
+  miracleBtn('mbtn-heal',     'heal');
+  miracleBtn('mbtn-wood',     'wood');
+
+  // ── Creature buttons ────────────────────────────────────────────────────────
+  function creatureAction(id, fn) {
+    const el = document.getElementById(id);
+    ['touchstart','mousedown'].forEach(ev => {
+      el.addEventListener(ev, e => {
+        e.stopPropagation(); e.preventDefault();
+        if (creature) fn();
+        else showMiracleFlash('No creature yet', '#aaa');
+      }, { passive: false });
+    });
+  }
+  creatureAction('btn-reward', () => creature.reward());
+  creatureAction('btn-punish', () => creature.punish());
+
+  // ── Keyboard (desktop) ─────────────────────────────────────────────────────
   window.addEventListener('keydown', e => {
     const key = e.key.toLowerCase();
     if (key === '1') castMiracleAt('fireball', worldMouse.clone(), true);
-    if (key === '2') castMiracleAt('food', worldMouse.clone(), true);
-    if (key === '3') castMiracleAt('heal', worldMouse.clone(), true);
-    if (key === '4') castMiracleAt('wood', worldMouse.clone(), true);
-
+    if (key === '2') castMiracleAt('food',     worldMouse.clone(), true);
+    if (key === '3') castMiracleAt('heal',     worldMouse.clone(), true);
+    if (key === '4') castMiracleAt('wood',     worldMouse.clone(), true);
     if ((key === 'r' || key === 'p') && creature) {
-      const d = godHand.position.distanceTo(creature.group.position);
-      if (d < 10) {
-        if (key === 'r') creature.reward();
-        if (key === 'p') creature.punish();
-      } else {
-        showMiracleFlash('Move closer to creature', '#aaaaaa');
-      }
+      if (key === 'r') creature.reward(); else creature.punish();
     }
   });
 
@@ -1320,6 +1424,15 @@ function initInput() {
     composer.setSize(window.innerWidth, window.innerHeight);
     resizeGestureCanvas();
   });
+}
+
+function finishGesture() {
+  gestureActive = false;
+  gestureCtx2d.clearRect(0, 0, gestureCanvas.width, gestureCanvas.height);
+  const type = recognizeGesture(gesturePath);
+  if (type) castMiracleAt(type, worldMouse.clone(), true);
+  else if (gesturePath.length > 5) showMiracleFlash('?', '#999');
+  gesturePath = [];
 }
 
 // ─── Scene setup ─────────────────────────────────────────────────────────────
