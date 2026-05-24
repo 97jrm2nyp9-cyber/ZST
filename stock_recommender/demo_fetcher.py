@@ -262,6 +262,9 @@ def fetch_all(max_stocks: int = 100, filters: str = "geo_usa",
         rsi = 50 + quality * 20 + rng.normal(0, 10)
         rsi = float(np.clip(rsi, 5, 99))
 
+        # EPS Q/Q: recent earnings beat — correlated with quality
+        eps_qq = quality * 0.20 + rng.normal(0, 0.15)
+
         # EPS growth
         eps_ny = bias["eps_next_y"] + quality * 0.15 + rng.normal(0, 0.10)
         eps_5y = bias["eps_next_y"] * 0.8 + quality * 0.12 + rng.normal(0, 0.08)
@@ -269,6 +272,15 @@ def fetch_all(max_stocks: int = 100, filters: str = "geo_usa",
         # Smart money: insider/inst transactions (3-month change)
         insider_trans = quality * 0.04 + rng.normal(0, 0.03)
         inst_trans    = quality * 0.03 + rng.normal(0, 0.025)
+
+        # Float short: high-quality stocks tend to have lower short interest
+        float_short = max(0.005, 0.10 - quality * 0.07 + rng.normal(0, 0.04))
+        short_ratio = max(0.1, float_short * 20 + rng.normal(0, 1.5))
+
+        # 52W high proximity: correlated with momentum
+        # 0 = at 52W high, negative = below. Strong momentum → near high.
+        w52h = min(0.0, mom_bias * 3 - 0.05 + rng.normal(0, 0.08))
+        w52l = max(0.0, -mom_bias * 3 + 0.30 + rng.normal(0, 0.12))
 
         # Beta: growth sectors higher
         beta_base = {"Technology": 1.3, "Consumer Defensive": 0.6,
@@ -287,18 +299,22 @@ def fetch_all(max_stocks: int = 100, filters: str = "geo_usa",
             "SMA20":         _pct_str(sma20),
             "SMA50":         _pct_str(sma50),
             "SMA200":        _pct_str(sma200),
+            "52W High":      _pct_str(w52h),
+            "52W Low":       _pct_str(w52l),
             "RSI":           str(round(rsi, 1)),
             "Perf Month":    _pct_str(p1m),
             "Perf Quart":    _pct_str(p3m),
             "Perf Half":     _pct_str(p6m),
             "Perf Year":     _pct_str(p1y),
             "Perf YTD":      _pct_str(p3m),
+            "EPS Q/Q":       _pct_str(eps_qq),
             "EPS next Y":    _pct_str(eps_ny),
             "EPS next 5Y":   _pct_str(eps_5y),
             "Insider Trans": _pct_str(insider_trans),
             "Inst Trans":    _pct_str(inst_trans),
+            "Float Short":   _pct_str(float_short),
+            "Short Ratio":   str(round(float(short_ratio), 1)),
             "Beta":          str(round(float(beta), 2)),
-            "Float Short":   _pct_str(rng.uniform(0.01, 0.20)),
         })
 
     return pd.DataFrame(rows)

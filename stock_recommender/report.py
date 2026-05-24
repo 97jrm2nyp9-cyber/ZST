@@ -50,8 +50,10 @@ def print_report(ranked: pd.DataFrame, top_n: int = 25, use_color: bool = True) 
     print()
     print("  Conviction score: −100 (Strong Sell) → +100 (Strong Buy)")
     print()
-    print("  Score weights: Analyst Consensus 30% | Target Upside 20% | SMA Trend 20%")
-    print("                 Momentum 15% (1M×3+3M×3+6M×4+12M×5) | Earnings Growth 10% | Smart Money 5%")
+    print("  Signals (v2): EPS Revision 20% | SMA Continuous 15% | Momentum 15% | Rel Strength 10%")
+    print("                Target Upside 10% | Analyst Consensus 10% | RSI 5% | 52W High 5%")
+    print("                Fundamentals 5% | Smart Money (incl. short interest) 5%")
+    print("  All momentum/technical signals sector-relative z-scored to eliminate sector bias.")
     print()
 
     def _section(subset: pd.DataFrame, title: str) -> None:

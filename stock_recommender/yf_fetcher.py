@@ -223,36 +223,44 @@ def fetch_all(max_stocks: int = 100, filters: str = "geo_usa",
         p6m    = _perf(price_series, 126)
         p1y    = _perf(price_series, 252)
 
+        # 52-week high/low proximity
+        w52h_price = info.get("fiftyTwoWeekHigh", np.nan)
+        w52l_price = info.get("fiftyTwoWeekLow", np.nan)
+        w52h_pct = ((current_price - w52h_price) / w52h_price
+                    if not np.isnan(w52h_price) and w52h_price > 0 else np.nan)
+        w52l_pct = ((current_price - w52l_price) / w52l_price
+                    if not np.isnan(w52l_price) and w52l_price > 0 else np.nan)
+
         def _pct_str(v) -> str:
-            return f"{v * 100:.2f}%" if not np.isnan(v) else "-"
+            return f"{v * 100:.2f}%" if (v is not None and not np.isnan(v)) else "-"
 
         # Analyst / fundamentals from info
         recom         = info.get("recommendationMean", np.nan)
         target_price  = info.get("targetMeanPrice", np.nan)
-        eps_next_y    = info.get("earningsGrowth", np.nan)   # forward YoY
+        eps_next_y    = info.get("earningsGrowth", np.nan)
         eps_next_5y   = info.get("earningsQuarterlyGrowth", np.nan)
+        # EPS Q/Q proxy: trailing vs. forward earnings growth differential
+        eps_qq        = info.get("earningsGrowth", np.nan)
         insider_trans = info.get("heldPercentInsiders", np.nan)
         inst_trans    = info.get("heldPercentInstitutions", np.nan)
+        float_short   = info.get("shortPercentOfFloat", np.nan)
+        short_ratio   = info.get("shortRatio", np.nan)
 
-        # yfinance insider / inst figures are totals, not 3M deltas.
-        # Use a centred zero so missing data is neutral rather than misleading.
-        # (The scorer caps at ±10% so extreme holdings are clipped.)
+        # yfinance insider/inst figures are totals, not 3M deltas — centre at typical levels
         insider_delta = (insider_trans - 0.10) if not np.isnan(insider_trans) else np.nan
         inst_delta    = (inst_trans    - 0.60) if not np.isnan(inst_trans)    else np.nan
 
-        # SMA stored as finviz-style % strings
-        upside = (
-            f"{(target_price - current_price) / current_price * 100:.2f}%"
-            if not np.isnan(target_price) and current_price > 0
-            else "-"
-        )
+        # Market cap: convert to "XB" string format for quality filter
+        mktcap_raw = info.get("marketCap", np.nan)
+        mktcap_str = (f"{mktcap_raw / 1e9:.2f}B"
+                      if not np.isnan(mktcap_raw) else "-")
 
         row = {
             "Ticker":       ticker,
             "Company":      info.get("longName", ticker),
             "Sector":       info.get("sector", "-"),
             "Industry":     info.get("industry", "-"),
-            "Market Cap":   info.get("marketCap", np.nan),
+            "Market Cap":   mktcap_str,
             # Analyst signals
             "Recom":        recom,
             "Target Price": target_price if not np.isnan(target_price) else "-",
@@ -261,6 +269,8 @@ def fetch_all(max_stocks: int = 100, filters: str = "geo_usa",
             "SMA20":        _pct_str(sma20),
             "SMA50":        _pct_str(sma50),
             "SMA200":       _pct_str(sma200),
+            "52W High":     _pct_str(w52h_pct),
+            "52W Low":      _pct_str(w52l_pct),
             "RSI":          round(rsi, 1),
             # Momentum
             "Perf Month":   _pct_str(p1m),
@@ -269,14 +279,16 @@ def fetch_all(max_stocks: int = 100, filters: str = "geo_usa",
             "Perf Year":    _pct_str(p1y),
             "Perf YTD":     "-",
             # Fundamentals
+            "EPS Q/Q":      _pct_str(eps_qq)      if not np.isnan(eps_qq)      else "-",
             "EPS next Y":   _pct_str(eps_next_y)  if not np.isnan(eps_next_y)  else "-",
             "EPS next 5Y":  _pct_str(eps_next_5y) if not np.isnan(eps_next_5y) else "-",
             # Smart money
             "Insider Trans": _pct_str(insider_delta) if not np.isnan(insider_delta) else "-",
             "Inst Trans":    _pct_str(inst_delta)    if not np.isnan(inst_delta)    else "-",
+            "Float Short":   _pct_str(float_short)   if not np.isnan(float_short)   else "-",
+            "Short Ratio":   str(round(float(short_ratio), 1)) if not np.isnan(short_ratio) else "-",
             # Extra
             "Beta":          info.get("beta", np.nan),
-            "Float Short":   info.get("shortPercentOfFloat", np.nan),
         }
         rows.append(row)
 
