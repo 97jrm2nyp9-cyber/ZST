@@ -338,72 +338,25 @@ function buildTerrain() {
     pos.setY(i, height);
     terrainHeightData[i] = height;
   }
+  // Set vertex colours based on height — no custom GLSL needed
+  const colors = [];
+  for (let i = 0; i < pos.count; i++) {
+    const h = pos.getY(i);
+    let r, g, b;
+    if (h < 0.5)       { r=0.76; g=0.70; b=0.50; }       // beach
+    else if (h < 4.0)  { const t=(h-0.5)/3.5; r=lerp(0.76,0.30,t); g=lerp(0.70,0.55,t); b=lerp(0.50,0.20,t); }
+    else if (h < 12.0) { const t=(h-4.0)/8.0; r=lerp(0.30,0.22,t); g=lerp(0.55,0.45,t); b=lerp(0.20,0.14,t); }
+    else if (h < 18.0) { const t=(h-12.0)/6.0; r=lerp(0.22,0.45,t); g=lerp(0.45,0.42,t); b=lerp(0.14,0.38,t); }
+    else               { const t=Math.min((h-18.0)/4.0,1); r=lerp(0.45,0.90,t); g=lerp(0.42,0.92,t); b=lerp(0.38,0.95,t); }
+    colors.push(r, g, b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geo.computeVertexNormals();
 
-  const mat = new THREE.ShaderMaterial({
-    uniforms: {
-      uSunColor: { value: new THREE.Color(1, 0.95, 0.85) },
-      uSunDir:   { value: new THREE.Vector3(0.5, 1, 0.4).normalize() },
-      uAlignment:{ value: 0.0 },
-    },
-    vertexShader: `
-      varying vec3 vNormal;
-      varying vec3 vWorldPos;
-      varying float vHeight;
-      void main() {
-        vNormal = normalMatrix * normal;
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPos = wp.xyz;
-        vHeight = position.y;
-        gl_Position = projectionMatrix * viewMatrix * wp;
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 uSunColor;
-      uniform vec3 uSunDir;
-      uniform float uAlignment;
-      varying vec3 vNormal;
-      varying vec3 vWorldPos;
-      varying float vHeight;
-
-      vec3 beach  = vec3(0.76, 0.70, 0.50);
-      vec3 grass1 = vec3(0.30, 0.55, 0.20);
-      vec3 grass2 = vec3(0.22, 0.45, 0.14);
-      vec3 rock   = vec3(0.45, 0.42, 0.38);
-      vec3 snow   = vec3(0.90, 0.92, 0.95);
-
-      void main() {
-        // Height-based blend
-        vec3 col;
-        if (vHeight < 0.5) {
-          col = beach;
-        } else if (vHeight < 4.0) {
-          col = mix(beach, grass1, (vHeight - 0.5) / 3.5);
-        } else if (vHeight < 12.0) {
-          col = mix(grass1, grass2, (vHeight - 4.0) / 8.0);
-        } else if (vHeight < 18.0) {
-          col = mix(grass2, rock, (vHeight - 12.0) / 6.0);
-        } else {
-          col = mix(rock, snow, (vHeight - 18.0) / 4.0);
-        }
-
-        // Evil tint
-        float evil = clamp(-uAlignment, 0.0, 1.0);
-        col = mix(col, col * vec3(0.7, 0.5, 0.5), evil * 0.35);
-
-        // Diffuse lighting
-        vec3 n = normalize(vNormal);
-        float diff = max(dot(n, normalize(uSunDir)), 0.0);
-        vec3 light = uSunColor * (0.4 + 0.6 * diff);
-        col *= light;
-
-        gl_FragColor = vec4(col, 1.0);
-      }
-    `,
-  });
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
 
   terrainMesh = new THREE.Mesh(geo, mat);
-  terrainMesh.receiveShadow = true;
+  terrainMesh.receiveShadow = false;
   terrainMesh.name = 'terrain';
   scene.add(terrainMesh);
 }
@@ -430,47 +383,10 @@ function snapToTerrain(obj, yOffset = 0) {
 
 // ─── Water ───────────────────────────────────────────────────────────────────
 function buildWater() {
-  const geo = new THREE.PlaneGeometry(400, 400, 64, 64);
+  const geo = new THREE.PlaneGeometry(400, 400, 1, 1);
   geo.rotateX(-Math.PI / 2);
-  const mat = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime:      { value: 0 },
-      uDeepColor: { value: new THREE.Color(0.06, 0.18, 0.38) },
-      uFoamColor: { value: new THREE.Color(0.55, 0.75, 0.95) },
-      uAlignment: { value: 0.0 },
-    },
-    vertexShader: `
-      uniform float uTime;
-      varying vec2  vUV;
-      varying float vWave;
-      void main() {
-        vUV = uv;
-        vec3 p = position;
-        float w = sin(p.x * 0.25 + uTime * 1.2) * cos(p.z * 0.22 + uTime * 0.9) * 0.35
-                + sin(p.x * 0.55 + uTime * 1.8) * 0.15;
-        p.y += w;
-        vWave = w;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform vec3  uDeepColor;
-      uniform vec3  uFoamColor;
-      uniform float uAlignment;
-      varying vec2  vUV;
-      varying float vWave;
-
-      void main() {
-        float foam  = smoothstep(0.25, 0.45, vWave);
-        float evil  = clamp(-uAlignment, 0.0, 1.0);
-        vec3 deep   = mix(uDeepColor, vec3(0.15, 0.04, 0.04), evil * 0.5);
-        vec3 col    = mix(deep, uFoamColor, foam * 0.4);
-        float alpha = 0.82 + foam * 0.1;
-        gl_FragColor = vec4(col, alpha);
-      }
-    `,
-    transparent: true,
-    depthWrite: false,
+  const mat = new THREE.MeshLambertMaterial({
+    color: 0x1a4a8a, transparent: true, opacity: 0.82,
   });
   waterMesh = new THREE.Mesh(geo, mat);
   waterMesh.position.y = SEA_LEVEL - 0.5;
@@ -1058,9 +974,12 @@ function updateWorldVisuals() {
   const sunColor = sunEvil.clone().lerp(sunGood, t);
   scene.children.forEach(c => { if (c.isDirectionalLight) c.color.copy(sunColor); });
 
-  // Terrain + water alignment uniform
-  if (terrainMesh) terrainMesh.material.uniforms.uAlignment.value = alignment;
-  if (waterMesh)   waterMesh.material.uniforms.uAlignment.value   = alignment;
+  // Tint terrain vertex colours toward red/dark on evil alignment
+  if (terrainMesh) terrainMesh.material.color.setRGB(
+    lerp(1.0, 0.7, Math.max(0, -alignment)),
+    lerp(1.0, 0.6, Math.max(0, -alignment)),
+    lerp(1.0, 0.6, Math.max(0, -alignment))
+  );
 
 }
 
@@ -1429,8 +1348,7 @@ function initScene() {
   renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = false;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
 
@@ -1487,8 +1405,11 @@ function gameLoop() {
 
   controls.update();
 
-  // Water animation
-  if (waterMesh) waterMesh.material.uniforms.uTime.value = elapsed;
+  // Water colour follows alignment
+  if (waterMesh) {
+    const t = (alignment + 1) / 2;
+    waterMesh.material.color.setRGB(lerp(0.25,0.10,t), lerp(0.04,0.28,t), lerp(0.08,0.54,t));
+  }
 
   // Villager updates
   for (const v of villagers) v.update(dt);
