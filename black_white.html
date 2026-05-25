@@ -231,12 +231,6 @@ canvas { display: block; }
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.150.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/controls/OrbitControls.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/shaders/CopyShader.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/postprocessing/EffectComposer.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/postprocessing/RenderPass.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/postprocessing/ShaderPass.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
 
 <script>
 
@@ -1068,10 +1062,6 @@ function updateWorldVisuals() {
   if (terrainMesh) terrainMesh.material.uniforms.uAlignment.value = alignment;
   if (waterMesh)   waterMesh.material.uniforms.uAlignment.value   = alignment;
 
-  // Bloom strength
-  if (composer && composer.passes[1]) {
-    composer.passes[1].strength = 0.5 + Math.abs(alignment) * 0.5;
-  }
 }
 
 // ─── Gesture recognition ─────────────────────────────────────────────────────
@@ -1421,7 +1411,6 @@ function initInput() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    composer.setSize(window.innerWidth, window.innerHeight);
     resizeGestureCanvas();
   });
 }
@@ -1480,14 +1469,7 @@ function initScene() {
   const hemi = new THREE.HemisphereLight(0x87ceeb, 0x44663c, 0.5);
   scene.add(hemi);
 
-  // Post-processing
-  composer = new THREE.EffectComposer(renderer);
-  composer.addPass(new THREE.RenderPass(scene, camera));
-  const bloom = new THREE.UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
-    0.55, 0.4, 0.5
-  );
-  composer.addPass(bloom);
+  composer = null; // no post-processing — direct render
 }
 
 // ─── Tutorial fade ─────────────────────────────────────────────────────────────
@@ -1543,7 +1525,7 @@ function gameLoop() {
   // Gesture trail
   drawGestureTrail();
 
-  composer.render();
+  renderer.render(scene, camera);
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
