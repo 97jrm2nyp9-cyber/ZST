@@ -395,6 +395,59 @@ let gestureObjects = [];
 // Miracle cast count for creature learning
 let miracleCastCount = { fireball: 0, food: 0, heal: 0, wood: 0 };
 
+// ─── SharedMind — collective intelligence ─────────────────────────────────────
+const SharedMind = {
+  foodLocations:   [],   // known food pile positions
+  threatLocations: [],   // {pos, time} of recent danger
+  recentCasts:     [],   // {type, time} of recent creature miracle casts
+
+  notifyFood(pos) {
+    if (!this.foodLocations.some(p => p.distanceTo(pos) < 6))
+      this.foodLocations.push(pos.clone());
+    if (this.foodLocations.length > 6) this.foodLocations.shift();
+  },
+
+  notifyThreat(pos) {
+    this.threatLocations.push({ pos: pos.clone(), time: performance.now() / 1000 });
+    if (this.threatLocations.length > 3) this.threatLocations.shift();
+    // Broadcast alert to all creatures
+    creatures.forEach(c => { c._alertTimer = 5; c._alertPos = pos.clone(); });
+  },
+
+  notifyCast(type) {
+    this.recentCasts.push({ type, time: performance.now() / 1000 });
+    if (this.recentCasts.length > 8) this.recentCasts.shift();
+  },
+
+  wasRecentlyCast(type, withinSeconds = 18) {
+    const now = performance.now() / 1000;
+    return this.recentCasts.some(c => c.type === type && now - c.time < withinSeconds);
+  },
+
+  assignRoles() {
+    if (creatures.length === 0) return;
+    const roleFor = c => {
+      if (c.intelligenceLevel >= 5) return 'coordinator';
+      if (c.traits.aggression > 0.55) return 'guardian';
+      if (c.traits.curiosity  > 0.60) return 'scout';
+      return 'provider';
+    };
+    const roles = creatures.map(roleFor);
+    // Guarantee pack coverage when large enough
+    if (creatures.length >= 2 && !roles.includes('provider')) roles[1] = 'provider';
+    if (creatures.length >= 3 && !roles.includes('guardian')) roles[2] = 'guardian';
+    creatures.forEach((c, i) => { c._role = roles[i]; });
+  },
+
+  update() {
+    const now = performance.now() / 1000;
+    this.threatLocations = this.threatLocations.filter(t => now - t.time < 25);
+    this.foodLocations   = this.foodLocations.filter(pos =>
+      foodPiles.some(f => f.parent && f.position.distanceTo(pos) < 6)
+    );
+  }
+};
+
 // ─── Audio ───────────────────────────────────────────────────────────────────
 function ensureAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1004,17 +1057,22 @@ class CreatureAgent {
     this.age           = 0;
     this.experience    = 0;
     this.intelligenceLevel = 0;
-    this.xpThresholds  = [0, 35, 100, 220, 420];
+    this.xpThresholds  = [0, 35, 100, 220, 420, 700, 1100, 1600, 2200, 3000];
     this.learnedMiracles = new Set();
     this.memory        = [];
     this.autocastTimer = rand(20, 35);
     this.target        = new THREE.Vector3(x + rand(-10, 10), 0, z + rand(-10, 10));
     this._wanderTimer  = 0;
+    this._role         = 'provider';
+    this._alertTimer   = 0;
+    this._alertPos     = null;
+    this._coordTimer   = 0;
     this.group         = new THREE.Group();
     this._eyeMats      = [];
     this._intelligenceAura = null;
     this._hasGLB       = false;
-    this._levelNames   = ['Newborn', 'Curious', 'Learning', 'Capable', 'Transcendent'];
+    this._levelNames   = ['Newborn', 'Curious', 'Learning', 'Capable', 'Transcendent',
+                          'Coordinator', 'Strategist', 'Architect', 'Prophet', 'Omniscient'];
     this._buildMesh();
     const h = getTerrainHeight(x, z);
     this.group.position.set(x, h + 1.5, z);
@@ -1022,7 +1080,6 @@ class CreatureAgent {
   }
 
   gainExperience(amount) {
-    if (this.intelligenceLevel >= 4) return;
     this.experience += amount;
     const nextThreshold = this.xpThresholds[this.intelligenceLevel + 1];
     if (nextThreshold !== undefined && this.experience >= nextThreshold) {
@@ -1032,11 +1089,13 @@ class CreatureAgent {
   }
 
   _onLevelUp() {
-    const name = this._levelNames[this.intelligenceLevel] || 'Transcendent';
+    const name = this._levelNames[this.intelligenceLevel] || 'Omniscient';
     showMiracleFlash(`Creature: ${name}!`, '#aaffff');
     spawnBurst(this.group.position.clone().add(v3(0, 2.5, 0)), 0x44ffff, 35, 9, 0.22, 2.0);
     spawnBurst(this.group.position.clone().add(v3(0, 2.5, 0)), 0xffffff, 20, 6, 0.15, 1.5);
     if (this.intelligenceLevel >= 2) this._buildAura();
+    // Reassign roles whenever any creature levels up
+    if (this.intelligenceLevel >= 3) SharedMind.assignRoles();
   }
 
   remember(type, pos, value = 1) {
@@ -1044,6 +1103,9 @@ class CreatureAgent {
     if (this.memory.length > 20) this.memory.pop();
     const xpMap = { miracle: 5, food_appeared: 2, villager_hurt: 4, healed: 3, fireball_hit: 4 };
     if (xpMap[type]) this.gainExperience(xpMap[type]);
+    // Broadcast to shared knowledge base
+    if (type === 'food_appeared') SharedMind.notifyFood(pos);
+    if (type === 'fireball_hit')  SharedMind.notifyThreat(pos);
   }
 
   learnMiracle(type) {
@@ -1195,6 +1257,31 @@ class CreatureAgent {
     this.mat = mat;
   }
 
+  _getSeparationForce() {
+    const sep = new THREE.Vector3();
+    for (const other of creatures) {
+      if (other === this) continue;
+      const d = this.group.position.distanceTo(other.group.position);
+      if (d < 10 && d > 0.1) {
+        const away = this.group.position.clone().sub(other.group.position).normalize();
+        sep.addScaledVector(away, (10 - d) / 10 * 2.8);
+      }
+    }
+    return sep;
+  }
+
+  _pickMiracle() {
+    if (this.learnedMiracles.size === 0) return null;
+    const types  = [...this.learnedMiracles];
+    const hungry = villagers.filter(v => v.alive && v.hunger > 0.6).length;
+    // Prefer types not recently cast by any creature (cooperative diversity)
+    const fresh  = types.filter(t => !SharedMind.wasRecentlyCast(t, 20));
+    const pool   = fresh.length > 0 ? fresh : types;
+    if (hungry > 2 && pool.includes('food')) return 'food';
+    if (hungry > 0 && pool.includes('heal')) return 'heal';
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
   _moveTo(tp, speed, dt) {
     const dx = tp.x - this.group.position.x;
     const dz = tp.z - this.group.position.z;
@@ -1255,43 +1342,85 @@ class CreatureAgent {
       return this._wanderNear(VILLAGE_POS, 24, 2.2, dt);
     }
 
-    // Level 3+: Capable / Transcendent — smart resource management
-    this.autocastTimer -= dt;
-    if (this.autocastTimer <= 0 && this.learnedMiracles.size > 0) {
-      this.autocastTimer = rand(24, 44);
-      const hungry = villagers.filter(v => v.alive && v.hunger > 0.6).length;
-      let chosen;
-      if (hungry > 2 && this.learnedMiracles.has('food'))      chosen = 'food';
-      else if (hungry > 0 && this.learnedMiracles.has('heal')) chosen = 'heal';
-      else { const arr = [...this.learnedMiracles]; chosen = arr[Math.floor(Math.random() * arr.length)]; }
-      const tgt = VILLAGE_POS.clone().add(v3(rand(-14, 14), 0, rand(-14, 14)));
-      castMiracleAt(chosen, tgt, false);
-      this._pulse(0x44ffff);
-      showMiracleFlash(`Creature: ${chosen}`, '#44ffcc');
-      this.gainExperience(10);
+    // Level 3+: Role-based coordination via SharedMind
+    const role = this._role || 'provider';
+
+    // Alert overrides: rush toward threat, signal others
+    if (this._alertTimer > 0) {
+      this._alertTimer -= dt;
+      if (this._alertPos) this._moveTo(this._alertPos, 3.8, dt);
+      this._pulse(0xff4400);
+      return true;
     }
 
-    if (lvl >= 4) {
-      // Transcendent: wide patrol, mentors other creatures
-      const a = this.age * 0.18;
-      const pr = 20 + Math.sin(this.age * 0.07) * 6;
-      this.target.set(VILLAGE_POS.x + Math.cos(a) * pr, 0, VILLAGE_POS.z + Math.sin(a) * pr);
-    } else {
-      this._wanderTimer -= dt;
-      if (this.group.position.distanceTo(this.target) < 2.0 || this._wanderTimer <= 0) {
-        const angle = Math.random() * Math.PI * 2;
-        this.target.set(VILLAGE_POS.x + Math.cos(angle) * rand(6, 22), 0, VILLAGE_POS.z + Math.sin(angle) * rand(6, 22));
-        this._wanderTimer = rand(5, 12);
+    // Cooperative miracle casting — avoid duplicating what pack-mates just cast
+    this.autocastTimer -= dt;
+    if (this.autocastTimer <= 0 && this.learnedMiracles.size > 0) {
+      const chosen = this._pickMiracle();
+      if (chosen) {
+        this.autocastTimer = rand(20, 40);
+        const tgt = VILLAGE_POS.clone().add(v3(rand(-14, 14), 0, rand(-14, 14)));
+        castMiracleAt(chosen, tgt, false);
+        SharedMind.notifyCast(chosen);
+        this._pulse(0x44ffff);
+        showMiracleFlash(`${role}: ${chosen}`, '#44ffcc');
+        this.gainExperience(10);
       }
     }
-    return this._moveTo(this.target, 2.6 * lerp(0.5, 1.6, 1 - this.traits.laziness), dt);
+
+    // Coordinator: periodically reassigns roles for the whole pack
+    if (role === 'coordinator') {
+      this._coordTimer -= dt;
+      if (this._coordTimer <= 0) {
+        SharedMind.assignRoles();
+        this._coordTimer = 15;
+        // Mentoring boost — pulse teal and boost nearby creatures
+        creatures.forEach(c => { if (c !== this) c.gainExperience(5); });
+        this._pulse(0x00ffff);
+      }
+      // Patrol tight circle around village, keeping watch
+      const a = this.age * 0.14;
+      this.target.set(VILLAGE_POS.x + Math.cos(a) * 14, 0, VILLAGE_POS.z + Math.sin(a) * 14);
+      return this._moveTo(this.target, 2.8, dt);
+    }
+
+    if (role === 'guardian') {
+      // Respond to known threats, patrol perimeter
+      const threat = SharedMind.threatLocations[0];
+      if (threat) {
+        return this._moveTo(threat.pos, 4.0, dt);
+      }
+      const a = this.age * 0.22;
+      const pr = 22 + Math.sin(this.age * 0.08) * 5;
+      this.target.set(VILLAGE_POS.x + Math.cos(a) * pr, 0, VILLAGE_POS.z + Math.sin(a) * pr);
+      return this._moveTo(this.target, 3.2, dt);
+    }
+
+    if (role === 'scout') {
+      // Wide exploration; investigate known food for pack
+      const knownFood = SharedMind.foodLocations[0];
+      if (knownFood && this.group.position.distanceTo(knownFood) > 12) {
+        return this._moveTo(knownFood, 3.2, dt);
+      }
+      this._wanderTimer -= dt;
+      if (this.group.position.distanceTo(this.target) < 2.0 || this._wanderTimer <= 0) {
+        const a = Math.random() * Math.PI * 2;
+        this.target.set(Math.cos(a) * rand(18, 52), 0, Math.sin(a) * rand(18, 52));
+        this._wanderTimer = rand(8, 20);
+      }
+      return this._moveTo(this.target, 3.0 * lerp(0.6, 1.6, 1 - this.traits.laziness), dt);
+    }
+
+    // provider (default): hover near village, support villagers
+    return this._wanderNear(VILLAGE_POS, 20, 2.4, dt);
   }
 
   _updateUI() {
     if (creatures[0] !== this) return;
     const lvlName = this._levelNames[this.intelligenceLevel] || 'Transcendent';
     const levelEl = document.getElementById('creature-level');
-    if (levelEl) levelEl.textContent = `${lvlName.toUpperCase()} · Gen ${this.generation}`;
+    const roleTag = creatures.length > 1 ? ` [${this._role}]` : '';
+    if (levelEl) levelEl.textContent = `${lvlName.toUpperCase()} · Gen ${this.generation}${roleTag}`;
 
     const countEl = document.getElementById('creature-count');
     if (countEl) countEl.textContent = creatures.length > 1 ? `×${creatures.length}` : '';
@@ -1341,6 +1470,10 @@ class CreatureAgent {
     this.gainExperience((0.4 + (this.traits.curiosity || 0.4) * 0.3) * dt);
 
     const moving = this._doStateBehavior(dt);
+
+    // Flock separation — keep creatures from overlapping
+    const sep = this._getSeparationForce();
+    this.group.position.addScaledVector(sep, 2 * dt);
 
     // Transcendent creatures mentor nearby creatures
     if (this.intelligenceLevel >= 4) {
@@ -1397,6 +1530,7 @@ function spawnCreature(x, z, parentTraits = null) {
   if (creatures.length >= 3) return null;
   const c = new CreatureAgent(x, z, parentTraits);
   creatures.push(c);
+  SharedMind.assignRoles();
   spawnBurst(new THREE.Vector3(x, getTerrainHeight(x, z) + 2, z), 0xaaffff, 25, 7, 0.22, 1.8);
   showMiracleFlash(
     parentTraits ? `Gen ${c.generation} Born!` : 'Creature Awakened!',
@@ -2279,6 +2413,9 @@ function gameLoop() {
 
   // Villager updates
   for (const v of villagers) v.update(dt);
+
+  // Collective mind maintenance
+  SharedMind.update(dt);
 
   // Creatures
   for (const c of creatures) c.update(dt);
