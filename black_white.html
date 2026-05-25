@@ -443,37 +443,19 @@ function buildWater() {
 
 // ─── Trees ───────────────────────────────────────────────────────────────────
 function buildTrees() {
-  const trunkMat = new THREE.MeshPhongMaterial({ color: 0x5C3317, shininess: 8 });
-  const count = 110;
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < 95; i++) {
     const angle = Math.random() * Math.PI * 2;
-    const dist  = rand(10, 78);
+    const dist  = rand(12, 76);
     const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
     const h = getTerrainHeight(x, z);
-    if (h < 1.0 || h > 17) continue;
-    const scale = rand(0.7, 1.4);
-    // Trunk
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.18*scale, 0.32*scale, 2.8*scale, 7),
-      trunkMat
-    );
-    trunk.position.set(x, h + 1.4*scale, z);
-    scene.add(trunk);
-    // 2-layer canopy for fullness
-    const leafColor = new THREE.Color().setHSL(0.28 + rand(-0.03,0.03), 0.65, 0.25 + rand(0,0.12));
-    const lMat = new THREE.MeshPhongMaterial({ color: leafColor, shininess: 4 });
-    [0, 1].forEach(layer => {
-      const radius = (2.0 - layer*0.5) * scale;
-      const yOff   = (4.0 + layer*2.2) * scale;
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(radius, 3.2*scale, 8), lMat);
-      cone.position.set(x, h + yOff, z);
-      cone.rotation.y = Math.random() * Math.PI;
-      scene.add(cone);
-    });
+    if (h < 1.2 || h > 17) continue;
+    const scale = rand(0.8, 1.5);
+    if (h > 11)       buildPineTree(x, z, h, scale);
+    else if (h < 3.0) buildPalmTree(x, z, h, scale);
+    else              Math.random() < 0.55 ? buildOakTree(x, z, h, scale) : buildPineTree(x, z, h, scale);
   }
-  // Scatter rocks
   const rockMat = new THREE.MeshPhongMaterial({ color: 0x888070, shininess: 18 });
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 42; i++) {
     const angle = Math.random() * Math.PI * 2;
     const dist  = rand(8, 82);
     const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
@@ -484,6 +466,75 @@ function buildTrees() {
     rock.position.set(x, h + s*0.5, z);
     rock.rotation.set(rand(0,Math.PI), rand(0,Math.PI), rand(0,Math.PI));
     scene.add(rock);
+  }
+}
+
+function buildOakTree(x, z, h, scale) {
+  const tMat = new THREE.MeshPhongMaterial({ color: 0x4a2e12, shininess: 5 });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22*scale, 0.40*scale, 3.5*scale, 7), tMat);
+  trunk.position.set(x, h + 1.75*scale, z);
+  scene.add(trunk);
+  const lH = 0.27 + rand(-0.04, 0.04), lL = 0.22 + rand(0, 0.10);
+  const lMat  = new THREE.MeshPhongMaterial({ color: new THREE.Color().setHSL(lH, 0.72, lL), shininess: 3 });
+  const lMat2 = new THREE.MeshPhongMaterial({ color: new THREE.Color().setHSL(lH, 0.65, lL - 0.06), shininess: 2 });
+  const mainR = rand(2.2, 3.0) * scale;
+  const main  = new THREE.Mesh(new THREE.SphereGeometry(mainR, 7, 6), lMat);
+  main.scale.y = rand(0.72, 0.92);
+  main.position.set(x, h + (3.6 + mainR*0.55)*scale, z);
+  scene.add(main);
+  const numA = 2 + Math.floor(Math.random() * 3);
+  for (let j = 0; j < numA; j++) {
+    const a2 = (j / numA) * Math.PI * 2 + rand(0, 0.8);
+    const ar  = rand(1.3, 1.9) * scale;
+    const ao  = rand(mainR * 0.5, mainR * 0.82);
+    const acc = new THREE.Mesh(new THREE.SphereGeometry(ar, 6, 5), lMat2);
+    acc.position.set(x + Math.cos(a2)*ao, h + (3.3 + rand(0,1.4))*scale, z + Math.sin(a2)*ao);
+    acc.scale.y = rand(0.78, 1.08);
+    scene.add(acc);
+  }
+}
+
+function buildPineTree(x, z, h, scale) {
+  const tMat = new THREE.MeshPhongMaterial({ color: 0x3d2008, shininess: 4 });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15*scale, 0.28*scale, 4.5*scale, 6), tMat);
+  trunk.position.set(x, h + 2.25*scale, z);
+  scene.add(trunk);
+  const lH = rand(0.30, 0.38);
+  const lMat = new THREE.MeshPhongMaterial({ color: new THREE.Color().setHSL(lH, 0.62, 0.17 + rand(0,0.08)), shininess: 2 });
+  [0, 1, 2].forEach(tier => {
+    const r = (2.3 - tier*0.52) * scale;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(r, 3.6*scale, 8), lMat);
+    cone.position.set(x, h + (4.0 + tier*2.6)*scale, z);
+    cone.rotation.y = Math.random() * Math.PI;
+    scene.add(cone);
+  });
+}
+
+function buildPalmTree(x, z, h, scale) {
+  const tMat = new THREE.MeshPhongMaterial({ color: 0x8B6910, shininess: 8 });
+  const leanDir = Math.random() * Math.PI * 2;
+  const lean    = 0.14 + Math.random() * 0.12;
+  for (let seg = 0; seg < 3; seg++) {
+    const sx = x + Math.cos(leanDir) * seg * lean * 1.6 * scale;
+    const sz = z + Math.sin(leanDir) * seg * lean * 1.6 * scale;
+    const sy = h + seg * 1.9 * scale;
+    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.17*scale*(1-seg*0.04), 0.22*scale*(1-seg*0.04), 1.9*scale, 7), tMat);
+    s.position.set(sx, sy + 0.95*scale, sz);
+    s.rotation.z = Math.sin(leanDir) * lean * 0.6;
+    s.rotation.x = Math.cos(leanDir) * lean * 0.6;
+    scene.add(s);
+  }
+  const tipX = x + Math.cos(leanDir)*3*lean*1.6*scale;
+  const tipZ = z + Math.sin(leanDir)*3*lean*1.6*scale;
+  const tipY = h + 3*1.9*scale;
+  const fMat = new THREE.MeshPhongMaterial({ color: new THREE.Color().setHSL(0.32, 0.7, 0.26), side: THREE.DoubleSide });
+  for (let f = 0; f < 7; f++) {
+    const fa = (f / 7) * Math.PI * 2;
+    const frond = new THREE.Mesh(new THREE.PlaneGeometry(0.55*scale, 2.8*scale), fMat);
+    frond.position.set(tipX, tipY, tipZ);
+    frond.rotation.y = fa;
+    frond.rotation.x = -0.55;
+    scene.add(frond);
   }
 }
 
@@ -537,20 +588,38 @@ function updateHandColor() {
 // ─── Villagers ───────────────────────────────────────────────────────────────
 class VillagerAgent {
   constructor(x, z) {
-    const bodyGeo  = new THREE.CapsuleGeometry(0.35, 1.0, 4, 8);
-    const bodyMat  = new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 0.8 });
-    this.mesh = new THREE.Mesh(bodyGeo, bodyMat);
-    this.mesh.castShadow = true;
+    this.mesh = new THREE.Group();
     this.mesh.userData.type = 'villager';
     this.mesh.userData.agent = this;
-    this.mesh.position.set(x, getTerrainHeight(x, z) + 1.0, z);
-    scene.add(this.mesh);
 
-    // Head
-    const headGeo = new THREE.SphereGeometry(0.28, 8, 8);
-    const head = new THREE.Mesh(headGeo, bodyMat.clone());
-    head.position.set(0, 0.85, 0);
+    const robeColor = new THREE.Color().setHSL(Math.random(), 0.48, 0.42 + Math.random() * 0.18);
+    const robeMat = new THREE.MeshPhongMaterial({ color: robeColor, shininess: 14 });
+    const skinMat = new THREE.MeshPhongMaterial({ color: 0xf0c898, shininess: 20 });
+    const hatMat  = new THREE.MeshPhongMaterial({ color: robeColor.clone().multiplyScalar(0.7) });
+
+    const robe = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.46, 1.3, 7), robeMat);
+    robe.castShadow = true;
+    this.mesh.add(robe);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 8, 8), skinMat);
+    head.position.set(0, 0.93, 0);
+    head.castShadow = true;
     this.mesh.add(head);
+
+    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.21, 0.38, 7), hatMat);
+    hat.position.set(0, 1.27, 0);
+    this.mesh.add(hat);
+
+    [-0.36, 0.36].forEach(ax => {
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.65, 5), robeMat);
+      arm.position.set(ax, 0.18, 0);
+      arm.rotation.z = ax > 0 ? 0.5 : -0.5;
+      this.mesh.add(arm);
+    });
+
+    const h = getTerrainHeight(x, z);
+    this.mesh.position.set(x, h + 0.65, z);
+    scene.add(this.mesh);
 
     this.state  = 'wander';
     this.target = null;
@@ -630,7 +699,7 @@ class VillagerAgent {
       this.mesh.position.z *= (ISLAND_RADIUS - 5) / r2;
     }
 
-    snapToTerrain(this.mesh, 1.0);
+    snapToTerrain(this.mesh, 0.65);
   }
 }
 
@@ -735,31 +804,96 @@ class CreatureAgent {
   }
 
   _buildMesh() {
-    const mat = new THREE.MeshStandardMaterial({ color: 0xc8a050, roughness: 0.5, emissive: 0x1a0800 });
-    // Body
-    const body = new THREE.Mesh(new THREE.BoxGeometry(2, 2.5, 1.8), mat);
+    const mat     = new THREE.MeshPhongMaterial({ color: 0xc8a050, shininess: 10, specular: 0x332211 });
+    const darkMat = new THREE.MeshPhongMaterial({ color: 0x8a6030, shininess: 6 });
+    const maneMat = new THREE.MeshPhongMaterial({ color: 0x7a4a10, shininess: 3 });
+
+    // Body — elongated sphere like a lion torso
+    const body = new THREE.Mesh(new THREE.SphereGeometry(1.35, 11, 9), mat);
+    body.scale.set(1.0, 0.82, 1.65);
     body.castShadow = true;
     this.group.add(body);
+
+    // Neck
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.72, 1.0, 8), mat);
+    neck.position.set(0, 0.62, 1.1);
+    neck.rotation.x = -0.38;
+    this.group.add(neck);
+
     // Head
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.9, 10, 10), mat);
-    head.position.set(0, 2.1, 0.4);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.92, 10, 9), mat);
+    head.scale.set(1.0, 0.88, 1.1);
+    head.position.set(0, 1.15, 1.95);
     head.castShadow = true;
     this.group.add(head);
-    // Eyes (glowing)
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0xffcc00, emissiveIntensity: 2 });
-    [-0.3, 0.3].forEach(ex => {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), eyeMat);
-      eye.position.set(ex, 2.2, 1.2);
+
+    // Snout
+    const snout = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), mat);
+    snout.scale.set(0.88, 0.68, 1.28);
+    snout.position.set(0, 0.82, 2.62);
+    this.group.add(snout);
+
+    // Nostrils
+    const nostMat = new THREE.MeshBasicMaterial({ color: 0x1a0d00 });
+    [-0.14, 0.14].forEach(ox => {
+      const n = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 5), nostMat);
+      n.position.set(ox, 0.79, 2.94);
+      this.group.add(n);
+    });
+
+    // Eyes
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0xffaa00, emissiveIntensity: 1.8 });
+    const pupMat = new THREE.MeshBasicMaterial({ color: 0x110000 });
+    [-0.36, 0.36].forEach(ex => {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.17, 7, 7), eyeMat);
+      eye.position.set(ex, 1.3, 2.58);
       this.group.add(eye);
+      const pup = new THREE.Mesh(new THREE.SphereGeometry(0.085, 5, 5), pupMat);
+      pup.position.set(ex, 1.3, 2.73);
+      this.group.add(pup);
     });
-    // Legs
-    const legMat = new THREE.MeshStandardMaterial({ color: 0xa07840, roughness: 0.7 });
-    [[-0.6,-1.6,-0.5],[0.6,-1.6,-0.5],[-0.6,-1.6,0.5],[0.6,-1.6,0.5]].forEach(([lx,ly,lz]) => {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.18, 1.2, 6), legMat);
-      leg.position.set(lx, ly, lz);
-      leg.castShadow = true;
-      this.group.add(leg);
+
+    // Ears
+    [-0.62, 0.62].forEach(ex => {
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.27, 0.52, 5), darkMat);
+      ear.position.set(ex, 1.98, 1.98);
+      ear.rotation.z = ex > 0 ? 0.38 : -0.38;
+      this.group.add(ear);
     });
+
+    // Mane ring
+    for (let m = 0; m < 9; m++) {
+      const ma = (m / 9) * Math.PI * 2;
+      const mp = new THREE.Mesh(new THREE.SphereGeometry(0.33, 6, 5), maneMat);
+      mp.position.set(Math.cos(ma) * 0.82, 0.82 + Math.sin(ma) * 0.14, 1.25);
+      mp.scale.y = 1.45;
+      this.group.add(mp);
+    }
+
+    // Legs — upper + lower + paw
+    [[-0.88,-0.78,-0.98],[0.88,-0.78,-0.98],[-0.88,-0.78,0.82],[0.88,-0.78,0.82]].forEach(([lx,ly,lz]) => {
+      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.21, 0.95, 7), mat);
+      upper.position.set(lx, ly, lz);
+      upper.rotation.z = lx < 0 ? -0.13 : 0.13;
+      upper.castShadow = true;
+      this.group.add(upper);
+      const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.13, 0.88, 7), darkMat);
+      lower.position.set(lx + (lx<0?-0.06:0.06), ly - 0.88, lz);
+      this.group.add(lower);
+      const paw = new THREE.Mesh(new THREE.SphereGeometry(0.22, 7, 5), darkMat);
+      paw.scale.set(1.2, 0.65, 1.32);
+      paw.position.set(lx + (lx<0?-0.1:0.1), ly - 1.38, lz + 0.1);
+      this.group.add(paw);
+    });
+
+    // Tail
+    for (let i = 0; i < 4; i++) {
+      const ts = new THREE.Mesh(new THREE.SphereGeometry(0.26 - i*0.04, 6, 5), i < 3 ? mat : maneMat);
+      ts.position.set(0, -0.48 + i*0.28, -1.42 - i*0.58);
+      ts.scale.y = 1.45;
+      this.group.add(ts);
+    }
+
     this.mat = mat;
   }
 
@@ -1012,6 +1146,119 @@ function spawnLog(pos) {
   scene.add(log);
 }
 
+// ─── Village buildings ────────────────────────────────────────────────────────
+function buildVillageBuildings() {
+  const h = getTerrainHeight(VILLAGE_POS.x, VILLAGE_POS.z);
+
+  // Stone well
+  const stoneMat = new THREE.MeshPhongMaterial({ color: 0x999080, shininess: 12 });
+  const well = new THREE.Mesh(new THREE.CylinderGeometry(0.82, 0.9, 1.0, 10), stoneMat);
+  well.position.set(VILLAGE_POS.x, h + 0.5, VILLAGE_POS.z - 3.5);
+  scene.add(well);
+  const crossBar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.1, 6),
+    new THREE.MeshPhongMaterial({ color: 0x5c3317 }));
+  crossBar.rotation.z = Math.PI / 2;
+  crossBar.position.set(VILLAGE_POS.x, h + 1.85, VILLAGE_POS.z - 3.5);
+  scene.add(crossBar);
+
+  // 5 thatched huts in arc
+  [-0.95, -0.45, 0.08, 0.58, 1.08].forEach((a, i) => {
+    const r  = 11 + (i % 2) * 3.5;
+    const hx = VILLAGE_POS.x + Math.cos(a) * r;
+    const hz = VILLAGE_POS.z + Math.sin(a) * r;
+    buildHut(hx, hz, getTerrainHeight(hx, hz));
+  });
+
+  // Campfire near center
+  buildCampfire(VILLAGE_POS.x + 4.5, VILLAGE_POS.z + 2.5);
+
+  // Fence posts
+  const postMat = new THREE.MeshPhongMaterial({ color: 0x7a5520 });
+  for (let i = 0; i < 18; i++) {
+    const fa = (i / 18) * Math.PI * 2;
+    const fpx = VILLAGE_POS.x + Math.cos(fa) * 8.8;
+    const fpz = VILLAGE_POS.z + Math.sin(fa) * 8.8;
+    const fh  = getTerrainHeight(fpx, fpz);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.2, 5), postMat);
+    post.position.set(fpx, fh + 0.6, fpz);
+    scene.add(post);
+  }
+}
+
+function buildHut(x, z, h) {
+  const wallMat = new THREE.MeshPhongMaterial({ color: 0xa09880, shininess: 8 });
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.2, 2.2, 8), wallMat);
+  wall.position.set(x, h + 1.1, z);
+  scene.add(wall);
+  const roofMat = new THREE.MeshPhongMaterial({ color: 0xb8922a, shininess: 5 });
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.85, 2.4, 8), roofMat);
+  roof.position.set(x, h + 3.4, z);
+  roof.rotation.y = Math.random() * 0.4;
+  scene.add(roof);
+  const doorMat = new THREE.MeshBasicMaterial({ color: 0x2a1a08 });
+  const door = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 1.15), doorMat);
+  door.position.set(x, h + 0.8, z + 2.15);
+  scene.add(door);
+}
+
+function buildCampfire(x, z) {
+  const h = getTerrainHeight(x, z);
+  const logMat = new THREE.MeshPhongMaterial({ color: 0x5c3317 });
+  [-0.38, 0.38].forEach(ox => {
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.1, 6), logMat);
+    log.rotation.z = Math.PI / 2;
+    log.rotation.y = ox > 0 ? 0.6 : -0.6;
+    log.position.set(x + ox*0.3, h + 0.12, z);
+    scene.add(log);
+  });
+  const flameMat = new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff3300, emissiveIntensity: 3.8, transparent: true, opacity: 0.85 });
+  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.36, 7, 7), flameMat);
+  flame.scale.y = 1.5;
+  flame.position.set(x, h + 0.68, z);
+  scene.add(flame);
+  window._flames = window._flames || [];
+  window._flames.push(flame);
+  const fireLight = new THREE.PointLight(0xff6600, 2.8, 14);
+  fireLight.position.set(x, h + 1.2, z);
+  scene.add(fireLight);
+  window._fireLights = window._fireLights || [];
+  window._fireLights.push(fireLight);
+}
+
+// ─── Clouds ───────────────────────────────────────────────────────────────────
+let clouds = [];
+
+function buildClouds() {
+  const cloudMat = new THREE.MeshPhongMaterial({ color: 0xffffff, transparent: true, opacity: 0.82, shininess: 0 });
+  for (let i = 0; i < 14; i++) {
+    const grp = new THREE.Group();
+    const numPuffs = 4 + Math.floor(Math.random() * 4);
+    for (let j = 0; j < numPuffs; j++) {
+      const r    = rand(5, 12);
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 7), cloudMat);
+      puff.position.set(rand(-9, 9), rand(-2, 4), rand(-5, 5));
+      puff.scale.y = rand(0.52, 0.72);
+      grp.add(puff);
+    }
+    const angle = Math.random() * Math.PI * 2;
+    const dist  = rand(45, 165);
+    grp.position.set(Math.cos(angle)*dist, rand(58, 92), Math.sin(angle)*dist);
+    grp.userData.speed = rand(0.5, 1.5);
+    grp.userData.angle = angle;
+    grp.userData.dist  = dist;
+    scene.add(grp);
+    clouds.push(grp);
+  }
+}
+
+function updateClouds(dt) {
+  for (const c of clouds) {
+    c.userData.angle += dt * c.userData.speed * 0.003;
+    c.position.x = Math.cos(c.userData.angle) * c.userData.dist;
+    c.position.z = Math.sin(c.userData.angle) * c.userData.dist;
+  }
+}
+
 // ─── Alignment ───────────────────────────────────────────────────────────────
 function changeAlignment(delta) {
   alignment = clamp(alignment + delta, -1, 1);
@@ -1032,24 +1279,7 @@ function updateFaithUI() {
 
 function updateWorldVisuals() {
   const t = (alignment + 1) / 2; // 0=evil 1=good
-  const skyGood = new THREE.Color(0.55, 0.75, 0.95);
-  const skyNeutral = new THREE.Color(0.35, 0.5, 0.7);
-  const skyEvil = new THREE.Color(0.12, 0.08, 0.18);
-  let skyColor;
-  if (t >= 0.5) skyColor = skyNeutral.clone().lerp(skyGood, (t - 0.5) * 2);
-  else          skyColor = skyEvil.clone().lerp(skyNeutral, t * 2);
-  scene.background = skyColor;
-  scene.fog.color.copy(skyColor);
-
-  // Sun color
-  const sunGood = new THREE.Color(1.1, 1.0, 0.85);
-  const sunEvil = new THREE.Color(0.7, 0.3, 0.2);
-  const sunColor = sunEvil.clone().lerp(sunGood, t);
-  scene.children.forEach(c => { if (c.isDirectionalLight) c.color.copy(sunColor); });
-
-  // Terrain + sky alignment
   if (terrainMesh) terrainMesh.material.uniforms.uAlignment.value = alignment;
-  const t = (alignment + 1) / 2;
   const skyTop = new THREE.Color().setRGB(lerp(0.08,0.18,t), lerp(0.05,0.35,t), lerp(0.15,0.75,t));
   const skyBot = new THREE.Color().setRGB(lerp(0.35,0.62,t), lerp(0.22,0.80,t), lerp(0.22,0.98,t));
   if (window._skyMesh) {
@@ -1060,7 +1290,6 @@ function updateWorldVisuals() {
   scene.fog.color.copy(skyBot);
   if (window._sun)     window._sun.color.setRGB(lerp(0.8,1.0,t), lerp(0.55,0.94,t), lerp(0.4,0.80,t));
   if (window._ambient) window._ambient.color.setRGB(lerp(0.2,0.4,t), lerp(0.15,0.53,t), lerp(0.25,0.73,t));
-
 }
 
 // ─── Gesture recognition ─────────────────────────────────────────────────────
@@ -1522,6 +1751,18 @@ function gameLoop() {
   if (window._totemOrb)   window._totemOrb.rotation.y = elapsed * 0.8;
   if (window._totemLight) window._totemLight.intensity = 3.0 + Math.sin(elapsed * 2.2) * 0.8;
 
+  // Campfire flicker
+  if (window._flames) window._flames.forEach((f, i) => {
+    f.scale.y = 1.3 + Math.sin(elapsed * 5.5 + i * 1.7) * 0.45;
+    f.scale.x = 0.8 + Math.sin(elapsed * 4.2 + i * 2.3) * 0.22;
+  });
+  if (window._fireLights) window._fireLights.forEach((l, i) => {
+    l.intensity = 2.4 + Math.sin(elapsed * 6.1 + i * 1.9) * 0.9;
+  });
+
+  // Clouds drift
+  updateClouds(dt);
+
   // Villager updates
   for (const v of villagers) v.update(dt);
 
@@ -1568,6 +1809,8 @@ function init() {
   buildTrees();
   buildHand();
   buildVillage();
+  buildVillageBuildings();
+  buildClouds();
   creature = new CreatureAgent();
   spawnAmbientSprites();
   initGestureCanvas();
