@@ -229,7 +229,15 @@ canvas { display: block; }
 
 <canvas id="c"></canvas>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/build/three.min.js"></script>
+<script src="lib/three.min.js"></script>
+<script src="lib/CopyShader.js"></script>
+<script src="lib/LuminosityHighPassShader.js"></script>
+<script src="lib/EffectComposer.js"></script>
+<script src="lib/RenderPass.js"></script>
+<script src="lib/ShaderPass.js"></script>
+<script src="lib/UnrealBloomPass.js"></script>
+<script src="lib/GLTFLoader.js"></script>
+<script src="lib/SkeletonUtils.js"></script>
 
 <script>
 
@@ -805,12 +813,40 @@ class VillagerAgent {
 
     snapToTerrain(this.mesh, 0.65);
 
-    // Walk bob
-    if (this.state !== 'wander' || this.target) {
+    // Walk bob / mixer
+    if (this._hasGLB && this.mixer) {
+      this.mixer.update(dt);
+    } else if (this.state !== 'wander' || this.target) {
       const phase = performance.now() * 0.006 + this.timer;
       this.mesh.position.y += Math.abs(Math.sin(phase)) * 0.06;
       this.mesh.rotation.z  = Math.sin(phase * 0.5) * 0.04;
     }
+  }
+
+  applyGLBModel(gltf) {
+    while (this.mesh.children.length) this.mesh.remove(this.mesh.children[0]);
+    const model = THREE.SkeletonUtils.clone(gltf.scene);
+    model.scale.setScalar(1.1);
+    model.rotation.y = Math.PI;
+    // Tint the villager's robe color
+    const hue = Math.random();
+    model.traverse(c => {
+      if (!c.isMesh) return;
+      c.castShadow = true;
+      c.material = c.material.clone();
+      c.material.color.multiplyScalar(0.7 + Math.random() * 0.5);
+      if (hue < 0.33)       c.material.color.r *= 1.4;
+      else if (hue < 0.66)  c.material.color.g *= 1.4;
+      else                   c.material.color.b *= 1.4;
+    });
+    this.mesh.add(model);
+    this.mixer = new THREE.AnimationMixer(model);
+    if (gltf.animations.length > 0) {
+      const action = this.mixer.clipAction(gltf.animations[0]);
+      action.setEffectiveTimeScale(1.2 + Math.random() * 0.4);
+      action.play();
+    }
+    this._hasGLB = true;
   }
 }
 
@@ -843,7 +879,7 @@ function buildVillage() {
 
   // Totem orb
   const orbGeo = new THREE.SphereGeometry(0.85, 16, 16);
-  const orbMat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffcc44, emissiveIntensity: 2.5, roughness: 0.1, metalness: 0.3 });
+  const orbMat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffcc44, emissiveIntensity: 5.0, roughness: 0.1, metalness: 0.3 });
   const orb = new THREE.Mesh(orbGeo, orbMat);
   orb.position.set(VILLAGE_POS.x, h + 7.2, VILLAGE_POS.z);
   scene.add(orb);
@@ -1048,6 +1084,32 @@ class CreatureAgent {
     }
   }
 
+  applyGLBModel(gltf) {
+    // Replace procedural mesh with Fox GLB
+    while (this.group.children.length) this.group.remove(this.group.children[0]);
+    const model = gltf.scene.clone(true);
+    model.scale.setScalar(0.062);
+    model.rotation.y = Math.PI;  // Fox faces -Z by default
+    model.traverse(c => {
+      if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; }
+    });
+    this.group.add(model);
+    this.mixer = new THREE.AnimationMixer(model);
+    this._walkClip   = THREE.AnimationClip.findByName(gltf.animations, 'Walk');
+    this._surveyClip = THREE.AnimationClip.findByName(gltf.animations, 'Survey');
+    this._runClip    = THREE.AnimationClip.findByName(gltf.animations, 'Run');
+    if (this._surveyClip) this.mixer.clipAction(this._surveyClip).play();
+    this._lastMoving = false;
+    this._hasGLB = true;
+  }
+
+  _switchAnim(clip) {
+    if (!this.mixer || !clip || this._currentClip === clip) return;
+    if (this._currentClip) this.mixer.clipAction(this._currentClip).fadeOut(0.25);
+    this.mixer.clipAction(clip).reset().fadeIn(0.25).play();
+    this._currentClip = clip;
+  }
+
   update(dt) {
     // Wander / follow player
     const toHand = worldMouse.clone().sub(this.group.position);
@@ -1088,30 +1150,39 @@ class CreatureAgent {
     const h = getTerrainHeight(this.group.position.x, this.group.position.z) + 1.5;
     this.group.position.y = lerp(this.group.position.y, h, 0.15);
 
-    // Walk / breathe animation
+    // Animation
     const now = performance.now() * 0.001;
     const distToTarget = this.group.position.distanceTo(this.target);
     const moving = distToTarget > 2.0;
-    if (this._legUpper) {
-      const swing = moving ? 0.42 : 0.0;
-      const phase = now * 3.6;
-      this._legUpper[0].rotation.x =  Math.sin(phase) * swing;
-      this._legUpper[1].rotation.x = -Math.sin(phase) * swing;
-      this._legUpper[2].rotation.x = -Math.sin(phase) * swing;
-      this._legUpper[3].rotation.x =  Math.sin(phase) * swing;
-      if (moving) this.group.position.y += Math.abs(Math.sin(phase * 2)) * 0.12;
-    }
-    if (!moving) {
-      this.group.scale.y = 1.0 + Math.sin(now * 1.4) * 0.022;
+
+    if (this._hasGLB && this.mixer) {
+      this.mixer.update(dt);
+      if (moving !== this._lastMoving) {
+        this._switchAnim(moving ? this._walkClip : this._surveyClip);
+        this._lastMoving = moving;
+      }
     } else {
-      this.group.scale.y = lerp(this.group.scale.y, 1.0, 0.1);
+      // Procedural fallback animation
+      if (this._legUpper) {
+        const swing = moving ? 0.42 : 0.0;
+        const phase = now * 3.6;
+        this._legUpper[0].rotation.x =  Math.sin(phase) * swing;
+        this._legUpper[1].rotation.x = -Math.sin(phase) * swing;
+        this._legUpper[2].rotation.x = -Math.sin(phase) * swing;
+        this._legUpper[3].rotation.x =  Math.sin(phase) * swing;
+        if (moving) this.group.position.y += Math.abs(Math.sin(phase * 2)) * 0.12;
+      }
+      if (!moving) this.group.scale.y = 1.0 + Math.sin(now * 1.4) * 0.022;
+      else         this.group.scale.y = lerp(this.group.scale.y, 1.0, 0.1);
     }
 
-    // Colour by trait
+    // Colour by trait (only affects procedural mat, harmless if GLB active)
     const t = this.traits.friendliness;
     const evil = this.traits.aggression;
-    this.mat.color.setRGB(lerp(0.7, 0.9, t), lerp(0.3, 0.7, t * (1-evil)), lerp(0.1, 0.2, t));
-    this.mat.emissive.setRGB(evil * 0.3, t * 0.05, 0);
+    if (this.mat) {
+      this.mat.color.setRGB(lerp(0.7, 0.9, t), lerp(0.3, 0.7, t * (1-evil)), lerp(0.1, 0.2, t));
+      this.mat.emissive.setRGB(evil * 0.3, t * 0.05, 0);
+    }
 
     document.getElementById('creature-status').textContent =
       this.learnedMiracles.size > 0
@@ -1223,7 +1294,7 @@ function castFireball(targetPos, fromPlayer) {
   if (fromPlayer) changeAlignment(-0.12);
   // Spawn fireball projectile
   const geo = new THREE.SphereGeometry(0.7, 8, 8);
-  const mat = new THREE.MeshStandardMaterial({ color: 0xff4400, emissive: 0xff2200, emissiveIntensity: 3, roughness: 0.2 });
+  const mat = new THREE.MeshStandardMaterial({ color: 0xff4400, emissive: 0xff2200, emissiveIntensity: 6, roughness: 0.2 });
   const ball = new THREE.Mesh(geo, mat);
   const startPos = worldMouse.clone().add(v3(0, 15, 0));
   ball.position.copy(startPos);
@@ -1345,7 +1416,7 @@ function buildCampfire(x, z) {
     log.position.set(x + ox*0.3, h + 0.12, z);
     scene.add(log);
   });
-  const flameMat = new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff3300, emissiveIntensity: 3.8, transparent: true, opacity: 0.85 });
+  const flameMat = new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4400, emissiveIntensity: 6.0, transparent: true, opacity: 0.88 });
   const flame = new THREE.Mesh(new THREE.SphereGeometry(0.36, 7, 7), flameMat);
   flame.scale.y = 1.5;
   flame.position.set(x, h + 0.68, z);
@@ -1773,6 +1844,7 @@ function initInput() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    if (composer) composer.setSize(window.innerWidth, window.innerHeight);
     resizeGestureCanvas();
   });
 }
@@ -1784,6 +1856,24 @@ function finishGesture() {
   if (type) castMiracleAt(type, worldMouse.clone(), true);
   else if (gesturePath.length > 5) showMiracleFlash('?', '#999');
   gesturePath = [];
+}
+
+// ─── GLB model loading ───────────────────────────────────────────────────────
+function loadModels() {
+  if (typeof THREE.GLTFLoader === 'undefined') { console.warn('GLTFLoader not available'); return; }
+  const loader = new THREE.GLTFLoader();
+
+  loader.load('./assets/creature.glb',
+    gltf => { if (creature) creature.applyGLBModel(gltf); },
+    null,
+    err  => console.warn('Creature GLB failed:', err)
+  );
+
+  loader.load('./assets/villager.glb',
+    gltf => { for (const v of villagers) v.applyGLBModel(gltf); },
+    null,
+    err  => console.warn('Villager GLB failed:', err)
+  );
 }
 
 // ─── Scene setup ─────────────────────────────────────────────────────────────
@@ -1876,7 +1966,29 @@ function initScene() {
   const hemi = new THREE.HemisphereLight(0x88bbff, 0x336622, 0.7);
   scene.add(hemi);
 
-  composer = null; // no post-processing — direct render
+  // ── Bloom post-processing ─────────────────────────────────────────────────
+  composer = null;
+  try {
+    const rt = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+    });
+    composer = new THREE.EffectComposer(renderer, rt);
+    composer.addPass(new THREE.RenderPass(scene, camera));
+    const bloom = new THREE.UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      0.8,   // strength
+      0.5,   // radius
+      0.38   // threshold — emissive objects above this glow
+    );
+    composer.addPass(bloom);
+    window._bloomPass = bloom;
+    const copy = new THREE.ShaderPass(THREE.CopyShader);
+    copy.renderToScreen = true;
+    composer.addPass(copy);
+  } catch (e) {
+    console.warn('Bloom unavailable:', e.message);
+    composer = null;
+  }
 }
 
 // ─── Tutorial fade ─────────────────────────────────────────────────────────────
@@ -1949,7 +2061,8 @@ function gameLoop() {
   // Gesture trail
   drawGestureTrail();
 
-  renderer.render(scene, camera);
+  if (composer) composer.render();
+  else renderer.render(scene, camera);
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
@@ -1964,6 +2077,7 @@ function init() {
   buildVillageBuildings();
   buildClouds();
   creature = new CreatureAgent();
+  loadModels();
   spawnAmbientSprites();
   initGestureCanvas();
   initInput();
@@ -1988,7 +2102,7 @@ function showError(msg) {
 }
 
 if (typeof THREE === 'undefined') {
-  showError('ERROR: Three.js failed to load from CDN. Try the GitHub Pages URL instead.');
+  showError('ERROR: Three.js failed to load. Check that lib/three.min.js is present.');
 } else {
   try {
     init();
