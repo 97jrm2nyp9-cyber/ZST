@@ -1473,7 +1473,23 @@ function init() {
   gameLoop();
 }
 
-init();
+// ─── Diagnostics ─────────────────────────────────────────────────────────────
+function showError(msg) {
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#c00;color:#fff;padding:12px;font-size:14px;z-index:9999;word-break:break-all;';
+  d.textContent = msg;
+  document.body.appendChild(d);
+}
+
+if (typeof THREE === 'undefined') {
+  showError('ERROR: Three.js failed to load from CDN. Try the GitHub Pages URL instead.');
+} else {
+  try {
+    init();
+  } catch(e) {
+    showError('ERROR: ' + e.message + ' — ' + e.stack);
+  }
+}
 </script>
 </body>
 </html>
