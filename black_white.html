@@ -238,6 +238,10 @@ canvas { display: block; }
 <script src="lib/UnrealBloomPass.js"></script>
 <script src="lib/GLTFLoader.js"></script>
 <script src="lib/SkeletonUtils.js"></script>
+<script src="lib/SSAOShader.js"></script>
+<script src="lib/DepthLimitedBlurShader.js"></script>
+<script src="lib/UnpackDepthRGBAShader.js"></script>
+<script src="lib/SSAOPass.js"></script>
 
 <script>
 
@@ -470,9 +474,14 @@ function buildTerrain() {
       '  col*=0.88+det*0.24;',
       '  float evil=clamp(-uAlignment,0.0,1.0);',
       '  col=mix(col,col*vec3(0.62,0.42,0.42),evil*0.55);',
+      '  float ep=1.1;',
+      '  float bx=ns(vXZ*0.55+vec2(ep,0.0))-ns(vXZ*0.55-vec2(ep,0.0));',
+      '  float bz=ns(vXZ*0.55+vec2(0.0,ep))-ns(vXZ*0.55-vec2(0.0,ep));',
+      '  vec3 bN=normalize(vec3(-bx*0.8,1.0,-bz*0.8));',
+      '  vec3 n=normalize(vNormal*0.70+bN*0.30);',
       '  vec3 sunDir=normalize(vec3(0.55,1.0,0.4));',
-      '  float diff=max(dot(vNormal,sunDir),0.0);',
-      '  float light=0.30+0.70*diff;',
+      '  float diff=max(dot(n,sunDir),0.0);',
+      '  float light=0.28+0.72*diff;',
       '  gl_FragColor=vec4(col*light,1.0);',
       '}'
     ].join('\n'),
@@ -648,6 +657,46 @@ function buildPalmTree(x, z, h, scale) {
     frond.rotation.x = -0.55;
     scene.add(frond);
   }
+}
+
+// ─── Grass billboards ─────────────────────────────────────────────────────────
+function buildGrass() {
+  const N  = 3500;
+  const BH = 0.72;
+  // PlaneGeometry lies in XY plane → upright in world with Y-rotation only
+  const geo  = new THREE.PlaneGeometry(0.38, BH);
+  const mat  = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, vertexColors: true });
+  const mesh = new THREE.InstancedMesh(geo, mat, N);
+  mesh.frustumCulled = false;
+
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+  let placed  = 0;
+
+  for (let attempt = 0; attempt < N * 8 && placed < N; attempt++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist  = rand(3, 77);
+    const x = Math.cos(angle) * dist;
+    const z = Math.sin(angle) * dist;
+    const h = getTerrainHeight(x, z);
+    if (h < 1.0 || h > 10.5) continue;  // grass biome only
+
+    dummy.position.set(x, h + BH * 0.5, z);
+    dummy.rotation.y = Math.random() * Math.PI * 2;
+    dummy.scale.setScalar(0.75 + Math.random() * 0.55);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(placed, dummy.matrix);
+
+    color.setHSL(0.27 + rand(-0.03, 0.03), 0.65 + rand(-0.1, 0.1), 0.24 + rand(-0.04, 0.04));
+    mesh.setColorAt(placed, color);
+    placed++;
+  }
+
+  mesh.count = placed;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  scene.add(mesh);
+  window._grassMesh = mesh;
 }
 
 // ─── God Hand ────────────────────────────────────────────────────────────────
@@ -1495,6 +1544,10 @@ function updateWorldVisuals() {
   scene.fog.color.copy(skyBot);
   if (window._sun)     window._sun.color.setRGB(lerp(0.8,1.0,t), lerp(0.55,0.94,t), lerp(0.4,0.80,t));
   if (window._ambient) window._ambient.color.setRGB(lerp(0.2,0.4,t), lerp(0.15,0.53,t), lerp(0.25,0.73,t));
+  // Tint grass toward grey/dead when evil
+  if (window._grassMesh) {
+    window._grassMesh.material.color.setHSL(lerp(0.07,0.27,t), lerp(0.18,0.65,t), 1.0);
+  }
 }
 
 // ─── Gesture recognition ─────────────────────────────────────────────────────
@@ -1974,6 +2027,18 @@ function initScene() {
     });
     composer = new THREE.EffectComposer(renderer, rt);
     composer.addPass(new THREE.RenderPass(scene, camera));
+    // SSAO — skip on mobile to avoid doubling draw calls
+    const _isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent) || window.innerWidth < 900;
+    if (!_isMobile && typeof THREE.SSAOPass !== 'undefined') {
+      try {
+        const ssao = new THREE.SSAOPass(scene, camera, window.innerWidth, window.innerHeight);
+        ssao.kernelRadius = 10;
+        ssao.minDistance  = 0.003;
+        ssao.maxDistance  = 0.07;
+        composer.addPass(ssao);
+        window._ssaoPass = ssao;
+      } catch(e) { console.warn('SSAO unavailable:', e.message); }
+    }
     const bloom = new THREE.UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
       0.35,  // strength — subtle, only bright emissives glow
@@ -2072,6 +2137,7 @@ function init() {
   buildTerrain();
   buildWater();
   buildTrees();
+  buildGrass();
   buildHand();
   buildVillage();
   buildVillageBuildings();
