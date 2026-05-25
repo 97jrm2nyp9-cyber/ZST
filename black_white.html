@@ -879,7 +879,7 @@ function buildVillage() {
 
   // Totem orb
   const orbGeo = new THREE.SphereGeometry(0.85, 16, 16);
-  const orbMat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffcc44, emissiveIntensity: 5.0, roughness: 0.1, metalness: 0.3 });
+  const orbMat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffcc44, emissiveIntensity: 2.0, roughness: 0.1, metalness: 0.3 });
   const orb = new THREE.Mesh(orbGeo, orbMat);
   orb.position.set(VILLAGE_POS.x, h + 7.2, VILLAGE_POS.z);
   scene.add(orb);
@@ -1201,7 +1201,7 @@ class Particle {
     this.size = size;
     const geo = new THREE.SphereGeometry(size, 4, 4);
     const mat = new THREE.MeshStandardMaterial({
-      color, emissive: color, emissiveIntensity: 1.5,
+      color, emissive: color, emissiveIntensity: 0.6,
       transparent: true, opacity: 1,
     });
     this.mesh = new THREE.Mesh(geo, mat);
@@ -1294,7 +1294,7 @@ function castFireball(targetPos, fromPlayer) {
   if (fromPlayer) changeAlignment(-0.12);
   // Spawn fireball projectile
   const geo = new THREE.SphereGeometry(0.7, 8, 8);
-  const mat = new THREE.MeshStandardMaterial({ color: 0xff4400, emissive: 0xff2200, emissiveIntensity: 6, roughness: 0.2 });
+  const mat = new THREE.MeshStandardMaterial({ color: 0xff4400, emissive: 0xff2200, emissiveIntensity: 2.5, roughness: 0.2 });
   const ball = new THREE.Mesh(geo, mat);
   const startPos = worldMouse.clone().add(v3(0, 15, 0));
   ball.position.copy(startPos);
@@ -1416,7 +1416,7 @@ function buildCampfire(x, z) {
     log.position.set(x + ox*0.3, h + 0.12, z);
     scene.add(log);
   });
-  const flameMat = new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4400, emissiveIntensity: 6.0, transparent: true, opacity: 0.88 });
+  const flameMat = new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4400, emissiveIntensity: 2.2, transparent: true, opacity: 0.88 });
   const flame = new THREE.Mesh(new THREE.SphereGeometry(0.36, 7, 7), flameMat);
   flame.scale.y = 1.5;
   flame.position.set(x, h + 0.68, z);
@@ -1976,9 +1976,9 @@ function initScene() {
     composer.addPass(new THREE.RenderPass(scene, camera));
     const bloom = new THREE.UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      0.8,   // strength
-      0.5,   // radius
-      0.38   // threshold — emissive objects above this glow
+      0.35,  // strength — subtle, only bright emissives glow
+      0.4,   // radius
+      0.72   // threshold — only very bright emissives (fire, orb) pass
     );
     composer.addPass(bloom);
     window._bloomPass = bloom;
