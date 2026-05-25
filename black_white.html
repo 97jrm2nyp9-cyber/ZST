@@ -130,7 +130,7 @@ canvas { display: block; }
 .trait-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
 #bar-friendly .trait-fill { background: #44cc88; width: 50%; }
 #bar-aggress  .trait-fill { background: #cc4444; width: 30%; }
-#bar-lazy     .trait-fill { background: #aaaaaa; width: 60%; }
+#bar-curious  .trait-fill { background: #cc88ff; width: 40%; }
 
 /* Controls hint */
 #controls {
@@ -178,7 +178,12 @@ canvas { display: block; }
   </div>
 
   <div id="creature-panel">
-    <h3>Your Creature</h3>
+    <h3>Creature <span id="creature-count" style="opacity:0.5;font-size:9px;"></span></h3>
+    <div id="creature-level" style="color:#aaffff;font-size:10px;margin-bottom:6px;letter-spacing:1px;">NEWBORN · Gen 1</div>
+    <div class="trait-row" style="margin-bottom:2px;">
+      <span class="trait-name" style="color:rgba(180,255,255,0.7);">Intel.</span>
+      <div class="trait-bar" id="bar-intel"><div class="trait-fill" style="background:linear-gradient(to right,#4488ff,#aaffff);width:0%"></div></div>
+    </div>
     <div class="trait-row">
       <span class="trait-name">Friendly</span>
       <div class="trait-bar" id="bar-friendly"><div class="trait-fill"></div></div>
@@ -188,8 +193,8 @@ canvas { display: block; }
       <div class="trait-bar" id="bar-aggress"><div class="trait-fill"></div></div>
     </div>
     <div class="trait-row">
-      <span class="trait-name">Lazy</span>
-      <div class="trait-bar" id="bar-lazy"><div class="trait-fill"></div></div>
+      <span class="trait-name">Curious</span>
+      <div class="trait-bar" id="bar-curious"><div class="trait-fill"></div></div>
     </div>
     <div id="creature-status" style="color:rgba(255,255,255,0.4);font-size:9px;margin-top:6px;letter-spacing:1px;"></div>
   </div>
@@ -378,7 +383,7 @@ let foodPiles = [];
 let projectiles = [];
 let particles = [];
 let ambientSprites = [];
-let creature;
+let creatures = [];
 let audioCtx;
 
 // Gesture
@@ -980,128 +985,83 @@ function updateInfluenceRing() {
   );
 }
 
-// ─── Creature ─────────────────────────────────────────────────────────────────
+// ─── Creature (Thronglet) ─────────────────────────────────────────────────────
 class CreatureAgent {
-  constructor() {
-    this.traits = { friendliness: 0.5, aggression: 0.3, laziness: 0.6 };
-    this.learnedMiracles = new Set();
-    this.autocastTimer = 0;
-    this.state = 'wander';
-    this.target = new THREE.Vector3(VILLAGE_POS.x + 20, 0, VILLAGE_POS.z + 5);
-    this.group = new THREE.Group();
-    this._buildMesh();
-    scene.add(this.group);
+  constructor(x, z, parentTraits = null) {
+    this.generation = parentTraits ? (parentTraits._gen || 1) + 1 : 1;
+    if (parentTraits) {
+      this.traits = {
+        friendliness: clamp(parentTraits.friendliness + rand(-0.12, 0.12), 0.05, 0.95),
+        aggression:   clamp(parentTraits.aggression   + rand(-0.10, 0.10), 0.00, 0.90),
+        laziness:     clamp(parentTraits.laziness     + rand(-0.18, 0.08), 0.00, 0.85),
+        curiosity:    clamp((parentTraits.curiosity || 0.45) + rand(-0.10, 0.12), 0.10, 1.00),
+      };
+    } else {
+      this.traits = { friendliness: 0.5, aggression: 0.3, laziness: 0.6, curiosity: 0.4 };
+    }
+    this.traits._gen = this.generation;
 
-    this.group.position.set(
-      VILLAGE_POS.x + 25,
-      getTerrainHeight(VILLAGE_POS.x + 25, VILLAGE_POS.z + 5) + 1.5,
-      VILLAGE_POS.z + 5
-    );
+    this.age           = 0;
+    this.experience    = 0;
+    this.intelligenceLevel = 0;
+    this.xpThresholds  = [0, 35, 100, 220, 420];
+    this.learnedMiracles = new Set();
+    this.memory        = [];
+    this.autocastTimer = rand(20, 35);
+    this.target        = new THREE.Vector3(x + rand(-10, 10), 0, z + rand(-10, 10));
+    this._wanderTimer  = 0;
+    this.group         = new THREE.Group();
+    this._eyeMats      = [];
+    this._intelligenceAura = null;
+    this._hasGLB       = false;
+    this._levelNames   = ['Newborn', 'Curious', 'Learning', 'Capable', 'Transcendent'];
+    this._buildMesh();
+    const h = getTerrainHeight(x, z);
+    this.group.position.set(x, h + 1.5, z);
+    scene.add(this.group);
   }
 
-  _buildMesh() {
-    const mat     = new THREE.MeshPhongMaterial({ color: 0xc8a050, map: TEX.fur, shininess: 10, specular: 0x332211 });
-    const darkMat = new THREE.MeshPhongMaterial({ color: 0x8a6030, shininess: 6 });
-    const maneMat = new THREE.MeshPhongMaterial({ color: 0x7a4a10, shininess: 3 });
-
-    // Body — elongated sphere like a lion torso
-    const body = new THREE.Mesh(new THREE.SphereGeometry(1.35, 11, 9), mat);
-    body.scale.set(1.0, 0.82, 1.65);
-    body.castShadow = true;
-    this.group.add(body);
-
-    // Neck
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.72, 1.0, 8), mat);
-    neck.position.set(0, 0.62, 1.1);
-    neck.rotation.x = -0.38;
-    this.group.add(neck);
-
-    // Head
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.92, 10, 9), mat);
-    head.scale.set(1.0, 0.88, 1.1);
-    head.position.set(0, 1.15, 1.95);
-    head.castShadow = true;
-    this.group.add(head);
-
-    // Snout
-    const snout = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), mat);
-    snout.scale.set(0.88, 0.68, 1.28);
-    snout.position.set(0, 0.82, 2.62);
-    this.group.add(snout);
-
-    // Nostrils
-    const nostMat = new THREE.MeshBasicMaterial({ color: 0x1a0d00 });
-    [-0.14, 0.14].forEach(ox => {
-      const n = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 5), nostMat);
-      n.position.set(ox, 0.79, 2.94);
-      this.group.add(n);
-    });
-
-    // Eyes
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0xffaa00, emissiveIntensity: 1.8 });
-    const pupMat = new THREE.MeshBasicMaterial({ color: 0x110000 });
-    [-0.36, 0.36].forEach(ex => {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.17, 7, 7), eyeMat);
-      eye.position.set(ex, 1.3, 2.58);
-      this.group.add(eye);
-      const pup = new THREE.Mesh(new THREE.SphereGeometry(0.085, 5, 5), pupMat);
-      pup.position.set(ex, 1.3, 2.73);
-      this.group.add(pup);
-    });
-
-    // Ears
-    [-0.62, 0.62].forEach(ex => {
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.27, 0.52, 5), darkMat);
-      ear.position.set(ex, 1.98, 1.98);
-      ear.rotation.z = ex > 0 ? 0.38 : -0.38;
-      this.group.add(ear);
-    });
-
-    // Mane ring
-    for (let m = 0; m < 9; m++) {
-      const ma = (m / 9) * Math.PI * 2;
-      const mp = new THREE.Mesh(new THREE.SphereGeometry(0.33, 6, 5), maneMat);
-      mp.position.set(Math.cos(ma) * 0.82, 0.82 + Math.sin(ma) * 0.14, 1.25);
-      mp.scale.y = 1.45;
-      this.group.add(mp);
+  gainExperience(amount) {
+    if (this.intelligenceLevel >= 4) return;
+    this.experience += amount;
+    const nextThreshold = this.xpThresholds[this.intelligenceLevel + 1];
+    if (nextThreshold !== undefined && this.experience >= nextThreshold) {
+      this.intelligenceLevel++;
+      this._onLevelUp();
     }
+  }
 
-    // Legs — upper + lower + paw
-    this._legUpper = [];
-    [[-0.88,-0.78,-0.98],[0.88,-0.78,-0.98],[-0.88,-0.78,0.82],[0.88,-0.78,0.82]].forEach(([lx,ly,lz]) => {
-      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.21, 0.95, 7), mat);
-      upper.position.set(lx, ly, lz);
-      upper.rotation.z = lx < 0 ? -0.13 : 0.13;
-      upper.castShadow = true;
-      this._legUpper.push(upper);
-      this.group.add(upper);
-      const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.13, 0.88, 7), darkMat);
-      lower.position.set(lx + (lx<0?-0.06:0.06), ly - 0.88, lz);
-      this.group.add(lower);
-      const paw = new THREE.Mesh(new THREE.SphereGeometry(0.22, 7, 5), darkMat);
-      paw.scale.set(1.2, 0.65, 1.32);
-      paw.position.set(lx + (lx<0?-0.1:0.1), ly - 1.38, lz + 0.1);
-      this.group.add(paw);
-    });
+  _onLevelUp() {
+    const name = this._levelNames[this.intelligenceLevel] || 'Transcendent';
+    showMiracleFlash(`Creature: ${name}!`, '#aaffff');
+    spawnBurst(this.group.position.clone().add(v3(0, 2.5, 0)), 0x44ffff, 35, 9, 0.22, 2.0);
+    spawnBurst(this.group.position.clone().add(v3(0, 2.5, 0)), 0xffffff, 20, 6, 0.15, 1.5);
+    if (this.intelligenceLevel >= 2) this._buildAura();
+  }
 
-    // Tail
-    for (let i = 0; i < 4; i++) {
-      const ts = new THREE.Mesh(new THREE.SphereGeometry(0.26 - i*0.04, 6, 5), i < 3 ? mat : maneMat);
-      ts.position.set(0, -0.48 + i*0.28, -1.42 - i*0.58);
-      ts.scale.y = 1.45;
-      this.group.add(ts);
+  remember(type, pos, value = 1) {
+    this.memory.unshift({ type, pos: pos.clone(), time: performance.now() / 1000, value });
+    if (this.memory.length > 20) this.memory.pop();
+    const xpMap = { miracle: 5, food_appeared: 2, villager_hurt: 4, healed: 3, fireball_hit: 4 };
+    if (xpMap[type]) this.gainExperience(xpMap[type]);
+  }
+
+  learnMiracle(type) {
+    if (!this.learnedMiracles.has(type)) {
+      this.learnedMiracles.add(type);
+      showMiracleFlash(`Creature learned ${type}!`, '#aaffaa');
+      this.gainExperience(15);
     }
-
-    this.mat = mat;
   }
 
   reward() {
     this.traits.friendliness = clamp(this.traits.friendliness + 0.15, 0, 1);
     this.traits.aggression   = clamp(this.traits.aggression   - 0.08, 0, 1);
-    this.traits.laziness     = clamp(this.traits.laziness     - 0.05, 0, 1);
+    this.traits.curiosity    = clamp(this.traits.curiosity    + 0.05, 0, 1);
     this._pulse(0xffee44); playReward();
     showMiracleFlash('Creature Rewarded ✦', '#ffd700');
     changeAlignment(0.03);
+    this.gainExperience(10);
     this._updateUI();
   }
 
@@ -1111,45 +1071,262 @@ class CreatureAgent {
     this._pulse(0xff2200); playPunish();
     showMiracleFlash('Creature Punished', '#cc4444');
     changeAlignment(-0.03);
+    this.gainExperience(3);
     this._updateUI();
   }
 
-  _pulse(color) {
+  _pulse(hexColor) {
+    if (!this.mat) return;
     const orig = this.mat.emissive.clone();
-    this.mat.emissive.setHex(color);
-    setTimeout(() => this.mat.emissive.copy(orig), 300);
+    this.mat.emissive.setHex(hexColor);
+    setTimeout(() => { if (this.mat) this.mat.emissive.copy(orig); }, 300);
   }
 
-  _updateUI() {
-    document.querySelector('#bar-friendly .trait-fill').style.width = (this.traits.friendliness * 100) + '%';
-    document.querySelector('#bar-aggress  .trait-fill').style.width = (this.traits.aggression   * 100) + '%';
-    document.querySelector('#bar-lazy     .trait-fill').style.width = (this.traits.laziness     * 100) + '%';
+  _buildAura() {
+    if (this._intelligenceAura) this.group.remove(this._intelligenceAura);
+    const aura = new THREE.Group();
+    const lvl  = this.intelligenceLevel;
+    const n    = 4 + lvl * 3;
+    const cols = [0x44aaff, 0xaaffaa, 0xffaa44, 0xff88ff, 0xffffff, 0xffff44];
+    for (let i = 0; i < n; i++) {
+      const col = cols[i % cols.length];
+      const mat = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 1.4 + lvl * 0.3 });
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.09 + lvl * 0.02, 4, 4), mat);
+      orb.userData.a0  = (i / n) * Math.PI * 2;
+      orb.userData.spd = 0.35 + rand(-0.1, 0.1);
+      orb.userData.r   = 2.0 + lvl * 0.25;
+      orb.userData.yph = rand(0, Math.PI * 2);
+      aura.add(orb);
+    }
+    this.group.add(aura);
+    this._intelligenceAura = aura;
   }
 
-  learnMiracle(type) {
-    if (!this.learnedMiracles.has(type)) {
-      this.learnedMiracles.add(type);
-      showMiracleFlash(`Creature learned ${type}!`, '#aaffaa');
+  _updateEvolutionVisuals() {
+    const lvl = this.intelligenceLevel;
+    const targetScale = 1.0 + lvl * 0.14;
+    const cs = this.group.scale.x;
+    if (Math.abs(cs - targetScale) > 0.001) this.group.scale.setScalar(lerp(cs, targetScale, 0.003));
+    this._eyeMats.forEach(m => {
+      const ti = 1.6 + lvl * 0.9;
+      if (Math.abs(m.emissiveIntensity - ti) > 0.01) m.emissiveIntensity = lerp(m.emissiveIntensity, ti, 0.015);
+    });
+    if (this._intelligenceAura) {
+      const t = performance.now() / 1000;
+      this._intelligenceAura.children.forEach(orb => {
+        const a = orb.userData.a0 + t * orb.userData.spd;
+        orb.position.set(
+          Math.cos(a) * orb.userData.r,
+          0.8 + Math.sin(t * 0.9 + orb.userData.yph) * 0.55,
+          Math.sin(a) * orb.userData.r
+        );
+      });
     }
   }
 
-  applyGLBModel(gltf) {
-    // Replace procedural mesh with Fox GLB
-    while (this.group.children.length) this.group.remove(this.group.children[0]);
-    const model = gltf.scene.clone(true);
-    model.scale.setScalar(0.062);
-    model.rotation.y = Math.PI;  // Fox faces -Z by default
-    model.traverse(c => {
-      if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; }
+  _buildMesh() {
+    const mat     = new THREE.MeshPhongMaterial({ color: 0xc8a050, map: TEX.fur, shininess: 10, specular: 0x332211 });
+    const darkMat = new THREE.MeshPhongMaterial({ color: 0x8a6030, shininess: 6 });
+    const maneMat = new THREE.MeshPhongMaterial({ color: 0x7a4a10, shininess: 3 });
+
+    const body = new THREE.Mesh(new THREE.SphereGeometry(1.35, 11, 9), mat);
+    body.scale.set(1.0, 0.82, 1.65); body.castShadow = true;
+    this.group.add(body);
+
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.72, 1.0, 8), mat);
+    neck.position.set(0, 0.62, 1.1); neck.rotation.x = -0.38;
+    this.group.add(neck);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.92, 10, 9), mat);
+    head.scale.set(1.0, 0.88, 1.1); head.position.set(0, 1.15, 1.95); head.castShadow = true;
+    this.group.add(head);
+
+    const snout = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), mat);
+    snout.scale.set(0.88, 0.68, 1.28); snout.position.set(0, 0.82, 2.62);
+    this.group.add(snout);
+
+    const nostMat = new THREE.MeshBasicMaterial({ color: 0x1a0d00 });
+    [-0.14, 0.14].forEach(ox => {
+      const n = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 5), nostMat);
+      n.position.set(ox, 0.79, 2.94); this.group.add(n);
     });
+
+    const eyeHue = 0.12 + Math.random() * 0.12;
+    const eyeCol = new THREE.Color().setHSL(eyeHue, 0.9, 0.55);
+    [-0.36, 0.36].forEach(ex => {
+      const eyeMat = new THREE.MeshStandardMaterial({ color: eyeCol, emissive: eyeCol, emissiveIntensity: 1.6 });
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.17, 7, 7), eyeMat);
+      eye.position.set(ex, 1.3, 2.58); this.group.add(eye);
+      this._eyeMats.push(eyeMat);
+      const pup = new THREE.Mesh(new THREE.SphereGeometry(0.085, 5, 5), new THREE.MeshBasicMaterial({ color: 0x110000 }));
+      pup.position.set(ex, 1.3, 2.73); this.group.add(pup);
+    });
+
+    [-0.62, 0.62].forEach(ex => {
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.27, 0.52, 5), darkMat);
+      ear.position.set(ex, 1.98, 1.98); ear.rotation.z = ex > 0 ? 0.38 : -0.38;
+      this.group.add(ear);
+    });
+
+    for (let m = 0; m < 9; m++) {
+      const ma = (m / 9) * Math.PI * 2;
+      const mp = new THREE.Mesh(new THREE.SphereGeometry(0.33, 6, 5), maneMat);
+      mp.position.set(Math.cos(ma) * 0.82, 0.82 + Math.sin(ma) * 0.14, 1.25);
+      mp.scale.y = 1.45; this.group.add(mp);
+    }
+
+    this._legUpper = [];
+    [[-0.88,-0.78,-0.98],[0.88,-0.78,-0.98],[-0.88,-0.78,0.82],[0.88,-0.78,0.82]].forEach(([lx,ly,lz]) => {
+      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.21, 0.95, 7), mat);
+      upper.position.set(lx, ly, lz); upper.rotation.z = lx < 0 ? -0.13 : 0.13; upper.castShadow = true;
+      this._legUpper.push(upper); this.group.add(upper);
+      const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.13, 0.88, 7), darkMat);
+      lower.position.set(lx + (lx < 0 ? -0.06 : 0.06), ly - 0.88, lz); this.group.add(lower);
+      const paw = new THREE.Mesh(new THREE.SphereGeometry(0.22, 7, 5), darkMat);
+      paw.scale.set(1.2, 0.65, 1.32); paw.position.set(lx + (lx < 0 ? -0.1 : 0.1), ly - 1.38, lz + 0.1);
+      this.group.add(paw);
+    });
+
+    for (let i = 0; i < 4; i++) {
+      const ts = new THREE.Mesh(new THREE.SphereGeometry(0.26 - i * 0.04, 6, 5), i < 3 ? mat : maneMat);
+      ts.position.set(0, -0.48 + i * 0.28, -1.42 - i * 0.58); ts.scale.y = 1.45;
+      this.group.add(ts);
+    }
+    this.mat = mat;
+  }
+
+  _moveTo(tp, speed, dt) {
+    const dx = tp.x - this.group.position.x;
+    const dz = tp.z - this.group.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist > 0.5) {
+      const s = Math.min(speed * dt, dist) / dist;
+      this.group.position.x += dx * s;
+      this.group.position.z += dz * s;
+      this.group.rotation.y = Math.atan2(dx, dz);
+      return true;
+    }
+    return false;
+  }
+
+  _wanderNear(center, radius, speed, dt) {
+    this._wanderTimer -= dt;
+    if (this.group.position.distanceTo(this.target) < 2.0 || this._wanderTimer <= 0) {
+      const angle = Math.random() * Math.PI * 2;
+      const r = rand(4, radius);
+      this.target.set(center.x + Math.cos(angle) * r, 0, center.z + Math.sin(angle) * r);
+      this._wanderTimer = rand(4, 10);
+    }
+    return this._moveTo(this.target, speed * lerp(0.55, 1.5, 1 - this.traits.laziness), dt);
+  }
+
+  _doStateBehavior(dt) {
+    const lvl = this.intelligenceLevel;
+
+    if (lvl === 0) {
+      // Newborn: wander near the god hand, observe
+      return this._wanderNear(worldMouse, 30, 1.6, dt);
+    }
+
+    if (lvl === 1) {
+      // Curious: investigate food piles, explore village
+      const food = nearestFood(this.group.position);
+      if (food && this.group.position.distanceTo(food.position) < 28) {
+        const moved = this._moveTo(food.position, 2.5, dt);
+        if (this.group.position.distanceTo(food.position) < 2.5) this.gainExperience(2);
+        return moved;
+      }
+      return this._wanderNear(VILLAGE_POS, 32, 2.0, dt);
+    }
+
+    if (lvl === 2) {
+      // Learning: replicate observed miracles
+      this.autocastTimer -= dt;
+      if (this.autocastTimer <= 0 && this.learnedMiracles.size > 0) {
+        this.autocastTimer = rand(18, 32);
+        const arr = [...this.learnedMiracles];
+        const chosen = arr[Math.floor(Math.random() * arr.length)];
+        const tgt = this.group.position.clone().add(v3(rand(-10, 10), 0, rand(-10, 10)));
+        castMiracleAt(chosen, tgt, false);
+        this._pulse(0x88ffaa);
+        showMiracleFlash(`Creature: ${chosen}`, '#88ffcc');
+        this.gainExperience(7);
+      }
+      return this._wanderNear(VILLAGE_POS, 24, 2.2, dt);
+    }
+
+    // Level 3+: Capable / Transcendent — smart resource management
+    this.autocastTimer -= dt;
+    if (this.autocastTimer <= 0 && this.learnedMiracles.size > 0) {
+      this.autocastTimer = rand(24, 44);
+      const hungry = villagers.filter(v => v.alive && v.hunger > 0.6).length;
+      let chosen;
+      if (hungry > 2 && this.learnedMiracles.has('food'))      chosen = 'food';
+      else if (hungry > 0 && this.learnedMiracles.has('heal')) chosen = 'heal';
+      else { const arr = [...this.learnedMiracles]; chosen = arr[Math.floor(Math.random() * arr.length)]; }
+      const tgt = VILLAGE_POS.clone().add(v3(rand(-14, 14), 0, rand(-14, 14)));
+      castMiracleAt(chosen, tgt, false);
+      this._pulse(0x44ffff);
+      showMiracleFlash(`Creature: ${chosen}`, '#44ffcc');
+      this.gainExperience(10);
+    }
+
+    if (lvl >= 4) {
+      // Transcendent: wide patrol, mentors other creatures
+      const a = this.age * 0.18;
+      const pr = 20 + Math.sin(this.age * 0.07) * 6;
+      this.target.set(VILLAGE_POS.x + Math.cos(a) * pr, 0, VILLAGE_POS.z + Math.sin(a) * pr);
+    } else {
+      this._wanderTimer -= dt;
+      if (this.group.position.distanceTo(this.target) < 2.0 || this._wanderTimer <= 0) {
+        const angle = Math.random() * Math.PI * 2;
+        this.target.set(VILLAGE_POS.x + Math.cos(angle) * rand(6, 22), 0, VILLAGE_POS.z + Math.sin(angle) * rand(6, 22));
+        this._wanderTimer = rand(5, 12);
+      }
+    }
+    return this._moveTo(this.target, 2.6 * lerp(0.5, 1.6, 1 - this.traits.laziness), dt);
+  }
+
+  _updateUI() {
+    if (creatures[0] !== this) return;
+    const lvlName = this._levelNames[this.intelligenceLevel] || 'Transcendent';
+    const levelEl = document.getElementById('creature-level');
+    if (levelEl) levelEl.textContent = `${lvlName.toUpperCase()} · Gen ${this.generation}`;
+
+    const countEl = document.getElementById('creature-count');
+    if (countEl) countEl.textContent = creatures.length > 1 ? `×${creatures.length}` : '';
+
+    const nextXP  = this.xpThresholds[this.intelligenceLevel + 1];
+    const prevXP  = this.xpThresholds[this.intelligenceLevel] || 0;
+    const pct     = nextXP ? ((this.experience - prevXP) / (nextXP - prevXP) * 100) : 100;
+    const iFill   = document.querySelector('#bar-intel .trait-fill');
+    if (iFill) iFill.style.width = clamp(pct, 0, 100).toFixed(1) + '%';
+
+    document.querySelector('#bar-friendly .trait-fill').style.width = (this.traits.friendliness * 100).toFixed(1) + '%';
+    document.querySelector('#bar-aggress  .trait-fill').style.width = (this.traits.aggression   * 100).toFixed(1) + '%';
+    const cFill = document.querySelector('#bar-curious .trait-fill');
+    if (cFill) cFill.style.width = ((this.traits.curiosity || 0.5) * 100).toFixed(1) + '%';
+
+    document.getElementById('creature-status').textContent =
+      this.learnedMiracles.size > 0
+        ? 'Knows: ' + [...this.learnedMiracles].join(', ')
+        : ['Discovering…', 'Watching you…', 'Learning…', 'Strategising…', 'Transcending…'][this.intelligenceLevel] || 'Evolving…';
+  }
+
+  applyGLBModel(gltf) {
+    while (this.group.children.length) this.group.remove(this.group.children[0]);
+    this._eyeMats = []; this._intelligenceAura = null;
+    const model = gltf.scene.clone(true);
+    model.scale.setScalar(0.062); model.rotation.y = Math.PI;
+    model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
     this.group.add(model);
     this.mixer = new THREE.AnimationMixer(model);
     this._walkClip   = THREE.AnimationClip.findByName(gltf.animations, 'Walk');
     this._surveyClip = THREE.AnimationClip.findByName(gltf.animations, 'Survey');
     this._runClip    = THREE.AnimationClip.findByName(gltf.animations, 'Run');
     if (this._surveyClip) this.mixer.clipAction(this._surveyClip).play();
-    this._lastMoving = false;
-    this._hasGLB = true;
+    this._lastMoving = false; this._hasGLB = true;
+    if (this.intelligenceLevel >= 2) this._buildAura();
   }
 
   _switchAnim(clip) {
@@ -1160,84 +1337,72 @@ class CreatureAgent {
   }
 
   update(dt) {
-    // Wander / follow player
-    const toHand = worldMouse.clone().sub(this.group.position);
-    const distToHand = toHand.length();
+    this.age += dt;
+    this.gainExperience((0.4 + (this.traits.curiosity || 0.4) * 0.3) * dt);
 
-    if (this.state === 'wander') {
-      const tp = this.target;
-      const dir = new THREE.Vector3(tp.x - this.group.position.x, 0, tp.z - this.group.position.z);
-      const dist = dir.length();
-      const lazySlow = lerp(1.0, 2.5, 1 - this.traits.laziness);
-      if (dist > 1.5) {
-        dir.normalize();
-        this.group.position.x += dir.x * lazySlow * dt;
-        this.group.position.z += dir.z * lazySlow * dt;
-        this.group.rotation.y = Math.atan2(dir.x, dir.z);
-      } else {
-        // New wander target inside influence radius
-        const angle = Math.random() * Math.PI * 2;
-        const r = rand(5, Math.min(influenceRadius, 50));
-        this.target.set(Math.cos(angle) * r, 0, Math.sin(angle) * r);
+    const moving = this._doStateBehavior(dt);
+
+    // Transcendent creatures mentor nearby creatures
+    if (this.intelligenceLevel >= 4) {
+      for (const other of creatures) {
+        if (other !== this && this.group.position.distanceTo(other.group.position) < 16)
+          other.gainExperience(0.2 * dt);
       }
     }
 
-    // Auto-cast learned miracles
-    if (this.learnedMiracles.size > 0 && this.traits.laziness < 0.8) {
-      this.autocastTimer -= dt;
-      if (this.autocastTimer <= 0) {
-        this.autocastTimer = rand(20, 35);
-        const arr = [...this.learnedMiracles];
-        const chosen = arr[Math.floor(Math.random() * arr.length)];
-        castMiracleAt(chosen, this.group.position.clone().add(v3(rand(-5,5), 0, rand(-5,5))), false);
-        this._pulse(0x88ffaa);
-        showMiracleFlash(`Creature casts ${chosen}!`, '#88ffcc');
+    // Animation
+    if (this._hasGLB && this.mixer) {
+      this.mixer.update(dt);
+      const isMoving = this.group.position.distanceTo(this.target) > 2.0;
+      if (isMoving !== this._lastMoving) {
+        this._switchAnim(isMoving ? this._walkClip : this._surveyClip);
+        this._lastMoving = isMoving;
+      }
+    } else if (this._legUpper) {
+      if (moving) {
+        const phase = this.age * 3.5;
+        this._legUpper[0].rotation.x =  Math.sin(phase) * 0.42;
+        this._legUpper[1].rotation.x = -Math.sin(phase) * 0.42;
+        this._legUpper[2].rotation.x = -Math.sin(phase) * 0.42;
+        this._legUpper[3].rotation.x =  Math.sin(phase) * 0.42;
+        this.group.position.y += Math.abs(Math.sin(phase * 2)) * 0.08;
+      } else {
+        this._legUpper.forEach(l => { l.rotation.x = lerp(l.rotation.x, 0, 0.1); });
+        this.group.scale.y = 1.0 + Math.sin(this.age * 1.4) * 0.02;
       }
     }
 
     // Terrain snap
     const h = getTerrainHeight(this.group.position.x, this.group.position.z) + 1.5;
-    this.group.position.y = lerp(this.group.position.y, h, 0.15);
-
-    // Animation
-    const now = performance.now() * 0.001;
-    const distToTarget = this.group.position.distanceTo(this.target);
-    const moving = distToTarget > 2.0;
-
-    if (this._hasGLB && this.mixer) {
-      this.mixer.update(dt);
-      if (moving !== this._lastMoving) {
-        this._switchAnim(moving ? this._walkClip : this._surveyClip);
-        this._lastMoving = moving;
-      }
-    } else {
-      // Procedural fallback animation
-      if (this._legUpper) {
-        const swing = moving ? 0.42 : 0.0;
-        const phase = now * 3.6;
-        this._legUpper[0].rotation.x =  Math.sin(phase) * swing;
-        this._legUpper[1].rotation.x = -Math.sin(phase) * swing;
-        this._legUpper[2].rotation.x = -Math.sin(phase) * swing;
-        this._legUpper[3].rotation.x =  Math.sin(phase) * swing;
-        if (moving) this.group.position.y += Math.abs(Math.sin(phase * 2)) * 0.12;
-      }
-      if (!moving) this.group.scale.y = 1.0 + Math.sin(now * 1.4) * 0.022;
-      else         this.group.scale.y = lerp(this.group.scale.y, 1.0, 0.1);
+    this.group.position.y = lerp(this.group.position.y, h, 0.12);
+    const r2 = Math.sqrt(this.group.position.x ** 2 + this.group.position.z ** 2);
+    if (r2 > ISLAND_RADIUS - 8) {
+      this.group.position.x *= (ISLAND_RADIUS - 8) / r2;
+      this.group.position.z *= (ISLAND_RADIUS - 8) / r2;
     }
 
-    // Colour by trait (only affects procedural mat, harmless if GLB active)
-    const t = this.traits.friendliness;
-    const evil = this.traits.aggression;
+    this._updateEvolutionVisuals();
+
     if (this.mat) {
-      this.mat.color.setRGB(lerp(0.7, 0.9, t), lerp(0.3, 0.7, t * (1-evil)), lerp(0.1, 0.2, t));
-      this.mat.emissive.setRGB(evil * 0.3, t * 0.05, 0);
+      const f = this.traits.friendliness, e = this.traits.aggression;
+      this.mat.color.setRGB(lerp(0.7, 0.95, f), lerp(0.3, 0.72, f * (1 - e)), lerp(0.1, 0.22, f));
+      this.mat.emissive.setRGB(e * 0.18, f * 0.04, 0);
     }
 
-    document.getElementById('creature-status').textContent =
-      this.learnedMiracles.size > 0
-        ? 'Knows: ' + [...this.learnedMiracles].join(', ')
-        : 'Watching and learning…';
+    this._updateUI();
   }
+}
+
+function spawnCreature(x, z, parentTraits = null) {
+  if (creatures.length >= 3) return null;
+  const c = new CreatureAgent(x, z, parentTraits);
+  creatures.push(c);
+  spawnBurst(new THREE.Vector3(x, getTerrainHeight(x, z) + 2, z), 0xaaffff, 25, 7, 0.22, 1.8);
+  showMiracleFlash(
+    parentTraits ? `Gen ${c.generation} Born!` : 'Creature Awakened!',
+    '#aaffff'
+  );
+  return c;
 }
 
 // ─── Particles ────────────────────────────────────────────────────────────────
@@ -1316,7 +1481,7 @@ function updateAmbientSprites(t) {
 function castMiracleAt(type, pos, fromPlayer = true) {
   if (fromPlayer) {
     miracleCastCount[type] = (miracleCastCount[type] || 0) + 1;
-    if (miracleCastCount[type] >= 3 && creature) creature.learnMiracle(type);
+    if (miracleCastCount[type] >= 3) creatures.forEach(c => c.learnMiracle(type));
   }
 
   if (type === 'fireball') {
@@ -1360,6 +1525,7 @@ function castHeal(pos) {
   playHeal();
   changeAlignment(0.10);
   spawnBurst(pos, 0x44ff88, 30, 7, 0.2, 1.5);
+  creatures.forEach(c => c.remember('healed', pos));
   // Heal nearby villagers
   for (const v of villagers) {
     if (!v.alive) continue;
@@ -1383,6 +1549,7 @@ function spawnFood(pos) {
   food.userData.bites = 0;
   scene.add(food);
   foodPiles.push(food);
+  creatures.forEach(c => c.remember('food_appeared', food.position));
 }
 
 function spawnLog(pos) {
@@ -1701,6 +1868,7 @@ function updateProjectiles(dt) {
           }
         }
       }
+      creatures.forEach(c => c.remember('fireball_hit', p.position));
       scene.remove(p); p.geometry.dispose(); p.material.dispose();
       projectiles.splice(i, 1);
     }
@@ -1747,6 +1915,24 @@ function updateFaith(dt) {
   influenceRadius = clamp(INFLUENCE_BASE + faithPoints * 0.08, INFLUENCE_BASE, INFLUENCE_MAX);
   updateInfluenceRing();
   updateFaithUI();
+
+  // Spawn offspring as faith grows — children inherit parent traits with mutation
+  if (faithPoints >= 180 && creatures.length < 2) {
+    const a = Math.random() * Math.PI * 2;
+    spawnCreature(
+      VILLAGE_POS.x + Math.cos(a) * 22,
+      VILLAGE_POS.z + Math.sin(a) * 22,
+      creatures[0] ? creatures[0].traits : null
+    );
+  }
+  if (faithPoints >= 400 && creatures.length < 3) {
+    const a = Math.random() * Math.PI * 2;
+    spawnCreature(
+      VILLAGE_POS.x + Math.cos(a) * 26,
+      VILLAGE_POS.z + Math.sin(a) * 26,
+      creatures[0] ? creatures[0].traits : null
+    );
+  }
 }
 
 // ─── Miracle flash ────────────────────────────────────────────────────────────
@@ -1873,13 +2059,13 @@ function initInput() {
     ['touchstart','mousedown'].forEach(ev => {
       el.addEventListener(ev, e => {
         e.stopPropagation(); e.preventDefault();
-        if (creature) fn();
+        if (creatures.length > 0) fn();
         else showMiracleFlash('No creature yet', '#aaa');
       }, { passive: false });
     });
   }
-  creatureAction('btn-reward', () => creature.reward());
-  creatureAction('btn-punish', () => creature.punish());
+  creatureAction('btn-reward', () => { if (creatures[0]) creatures[0].reward(); });
+  creatureAction('btn-punish', () => { if (creatures[0]) creatures[0].punish(); });
 
   // ── Keyboard (desktop) ─────────────────────────────────────────────────────
   window.addEventListener('keydown', e => {
@@ -1888,8 +2074,8 @@ function initInput() {
     if (key === '2') castMiracleAt('food',     worldMouse.clone(), true);
     if (key === '3') castMiracleAt('heal',     worldMouse.clone(), true);
     if (key === '4') castMiracleAt('wood',     worldMouse.clone(), true);
-    if ((key === 'r' || key === 'p') && creature) {
-      if (key === 'r') creature.reward(); else creature.punish();
+    if ((key === 'r' || key === 'p') && creatures.length > 0) {
+      if (key === 'r') creatures[0].reward(); else creatures[0].punish();
     }
   });
 
@@ -1917,7 +2103,7 @@ function loadModels() {
   const loader = new THREE.GLTFLoader();
 
   loader.load('./assets/creature.glb',
-    gltf => { if (creature) creature.applyGLBModel(gltf); },
+    gltf => { creatures.forEach(c => c.applyGLBModel(gltf)); },
     null,
     err  => console.warn('Creature GLB failed:', err)
   );
@@ -2094,8 +2280,8 @@ function gameLoop() {
   // Villager updates
   for (const v of villagers) v.update(dt);
 
-  // Creature
-  if (creature) creature.update(dt);
+  // Creatures
+  for (const c of creatures) c.update(dt);
 
   // Particles
   for (let i = particles.length - 1; i >= 0; i--) {
@@ -2142,7 +2328,7 @@ function init() {
   buildVillage();
   buildVillageBuildings();
   buildClouds();
-  creature = new CreatureAgent();
+  spawnCreature(VILLAGE_POS.x + 25, VILLAGE_POS.z + 5);
   loadModels();
   spawnAmbientSprites();
   initGestureCanvas();
