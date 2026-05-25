@@ -338,22 +338,45 @@ function buildTerrain() {
     pos.setY(i, height);
     terrainHeightData[i] = height;
   }
-  // Set vertex colours based on height — no custom GLSL needed
-  const colors = [];
-  for (let i = 0; i < pos.count; i++) {
-    const h = pos.getY(i);
-    let r, g, b;
-    if (h < 0.5)       { r=0.76; g=0.70; b=0.50; }       // beach
-    else if (h < 4.0)  { const t=(h-0.5)/3.5; r=lerp(0.76,0.30,t); g=lerp(0.70,0.55,t); b=lerp(0.50,0.20,t); }
-    else if (h < 12.0) { const t=(h-4.0)/8.0; r=lerp(0.30,0.22,t); g=lerp(0.55,0.45,t); b=lerp(0.20,0.14,t); }
-    else if (h < 18.0) { const t=(h-12.0)/6.0; r=lerp(0.22,0.45,t); g=lerp(0.45,0.42,t); b=lerp(0.14,0.38,t); }
-    else               { const t=Math.min((h-18.0)/4.0,1); r=lerp(0.45,0.90,t); g=lerp(0.42,0.92,t); b=lerp(0.38,0.95,t); }
-    colors.push(r, g, b);
-  }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geo.computeVertexNormals();
 
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uAlignment: { value: 0.0 } },
+    vertexShader: [
+      'varying float vHeight;',
+      'varying vec3  vNormal;',
+      'void main(){',
+      '  vHeight = position.y;',
+      '  vNormal = normalize(normalMatrix * normal);',
+      '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);',
+      '}'
+    ].join('\n'),
+    fragmentShader: [
+      'precision mediump float;',
+      'uniform float uAlignment;',
+      'varying float vHeight;',
+      'varying vec3  vNormal;',
+      'void main(){',
+      '  vec3 beach = vec3(0.78,0.71,0.50);',
+      '  vec3 grass = vec3(0.28,0.55,0.18);',
+      '  vec3 dark  = vec3(0.20,0.42,0.12);',
+      '  vec3 rock  = vec3(0.46,0.43,0.38);',
+      '  vec3 snow  = vec3(0.92,0.94,0.96);',
+      '  vec3 col;',
+      '  if(vHeight<0.6)       col=beach;',
+      '  else if(vHeight<4.0)  col=mix(beach,grass,(vHeight-0.6)/3.4);',
+      '  else if(vHeight<12.0) col=mix(grass,dark,(vHeight-4.0)/8.0);',
+      '  else if(vHeight<18.0) col=mix(dark,rock,(vHeight-12.0)/6.0);',
+      '  else                  col=mix(rock,snow,clamp((vHeight-18.0)/4.0,0.0,1.0));',
+      '  float evil=clamp(-uAlignment,0.0,1.0);',
+      '  col=mix(col,col*vec3(0.65,0.45,0.45),evil*0.5);',
+      '  vec3 sun=normalize(vec3(0.5,1.0,0.4));',
+      '  float diff=max(dot(vNormal,sun),0.0);',
+      '  float light=0.35+0.65*diff;',
+      '  gl_FragColor=vec4(col*light,1.0);',
+      '}'
+    ].join('\n'),
+  });
 
   terrainMesh = new THREE.Mesh(geo, mat);
   terrainMesh.receiveShadow = false;
@@ -383,38 +406,84 @@ function snapToTerrain(obj, yOffset = 0) {
 
 // ─── Water ───────────────────────────────────────────────────────────────────
 function buildWater() {
-  const geo = new THREE.PlaneGeometry(400, 400, 1, 1);
+  const geo = new THREE.PlaneGeometry(400, 400, 48, 48);
   geo.rotateX(-Math.PI / 2);
-  const mat = new THREE.MeshLambertMaterial({
-    color: 0x1a4a8a, transparent: true, opacity: 0.82,
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uAlignment: { value: 0 } },
+    transparent: true, depthWrite: false,
+    vertexShader: [
+      'uniform float uTime;',
+      'varying float vWave;',
+      'void main(){',
+      '  vec3 p=position;',
+      '  float w=sin(p.x*0.22+uTime*1.1)*cos(p.z*0.19+uTime*0.85)*0.5',
+      '         +sin(p.x*0.47+uTime*1.6)*0.22;',
+      '  p.y+=w; vWave=w;',
+      '  gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);',
+      '}'
+    ].join('\n'),
+    fragmentShader: [
+      'precision mediump float;',
+      'uniform float uAlignment;',
+      'varying float vWave;',
+      'void main(){',
+      '  float evil=clamp(-uAlignment,0.0,1.0);',
+      '  vec3 deep=mix(vec3(0.05,0.18,0.42),vec3(0.18,0.04,0.06),evil*0.7);',
+      '  vec3 crest=mix(vec3(0.35,0.65,0.95),vec3(0.55,0.15,0.15),evil*0.6);',
+      '  float foam=smoothstep(0.25,0.55,vWave);',
+      '  vec3 col=mix(deep,crest,foam*0.5);',
+      '  gl_FragColor=vec4(col,0.84+foam*0.1);',
+      '}'
+    ].join('\n'),
   });
   waterMesh = new THREE.Mesh(geo, mat);
-  waterMesh.position.y = SEA_LEVEL - 0.5;
+  waterMesh.position.y = SEA_LEVEL - 0.4;
   scene.add(waterMesh);
 }
 
 // ─── Trees ───────────────────────────────────────────────────────────────────
 function buildTrees() {
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5C3317 });
-  const leafMat  = new THREE.MeshLambertMaterial({ color: 0x2d6a2d });
-  const trunkGeo = new THREE.CylinderGeometry(0.2, 0.35, 2.5, 6);
-  const leafGeo  = new THREE.ConeGeometry(1.8, 3.5, 7);
-  const count = 80;
+  const trunkMat = new THREE.MeshPhongMaterial({ color: 0x5C3317, shininess: 8 });
+  const count = 110;
   for (let i = 0; i < count; i++) {
     const angle = Math.random() * Math.PI * 2;
-    const dist  = rand(12, 75);
+    const dist  = rand(10, 78);
     const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
     const h = getTerrainHeight(x, z);
-    if (h < 1.2 || h > 17) continue;
-    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-    trunk.castShadow = true;
-    trunk.position.set(x, h + 1.25, z);
+    if (h < 1.0 || h > 17) continue;
+    const scale = rand(0.7, 1.4);
+    // Trunk
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18*scale, 0.32*scale, 2.8*scale, 7),
+      trunkMat
+    );
+    trunk.position.set(x, h + 1.4*scale, z);
     scene.add(trunk);
-    const leaf = new THREE.Mesh(leafGeo, leafMat.clone());
-    leaf.castShadow = true;
-    leaf.position.set(x, h + 4.5, z);
-    leaf.rotation.y = Math.random() * Math.PI;
-    scene.add(leaf);
+    // 2-layer canopy for fullness
+    const leafColor = new THREE.Color().setHSL(0.28 + rand(-0.03,0.03), 0.65, 0.25 + rand(0,0.12));
+    const lMat = new THREE.MeshPhongMaterial({ color: leafColor, shininess: 4 });
+    [0, 1].forEach(layer => {
+      const radius = (2.0 - layer*0.5) * scale;
+      const yOff   = (4.0 + layer*2.2) * scale;
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(radius, 3.2*scale, 8), lMat);
+      cone.position.set(x, h + yOff, z);
+      cone.rotation.y = Math.random() * Math.PI;
+      scene.add(cone);
+    });
+  }
+  // Scatter rocks
+  const rockMat = new THREE.MeshPhongMaterial({ color: 0x888070, shininess: 18 });
+  for (let i = 0; i < 40; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist  = rand(8, 82);
+    const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
+    const h = getTerrainHeight(x, z);
+    if (h < 0.3 || h > 20) continue;
+    const s = rand(0.4, 1.2);
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), rockMat);
+    rock.position.set(x, h + s*0.5, z);
+    rock.rotation.set(rand(0,Math.PI), rand(0,Math.PI), rand(0,Math.PI));
+    scene.add(rock);
   }
 }
 
@@ -424,13 +493,13 @@ function buildHand() {
 
   // Palm
   const palmGeo  = new THREE.BoxGeometry(1.8, 0.5, 2.2);
-  const palmMat  = new THREE.MeshStandardMaterial({ color: 0xf5c88a, roughness: 0.6 });
+  const palmMat  = new THREE.MeshPhongMaterial({ color: 0xf5c88a, shininess: 50, specular: 0xffeedd });
   const palm     = new THREE.Mesh(palmGeo, palmMat);
   palm.castShadow = true;
   handGroup.add(palm);
 
   // Fingers (4)
-  const fingerMat = new THREE.MeshStandardMaterial({ color: 0xf5c88a, roughness: 0.6 });
+  const fingerMat = new THREE.MeshPhongMaterial({ color: 0xf5c88a, shininess: 50, specular: 0xffeedd });
   [-0.6, -0.2, 0.2, 0.6].forEach((fx, i) => {
     const len = [1.5, 1.8, 1.7, 1.4][i];
     const fg  = new THREE.CapsuleGeometry(0.18, len, 4, 8);
@@ -459,10 +528,7 @@ function updateHandColor() {
     if (c.material) c.material.color.copy(color);
   });
 
-  // Emissive glow
-  const emissiveGood = new THREE.Color(0.2, 0.15, 0.0);
-  const emissiveEvil = new THREE.Color(0.3, 0.0, 0.0);
-  const emissive = emissiveEvil.clone().lerp(emissiveGood, t);
+  const emissive = new THREE.Color(lerp(0.25,0.12,t), lerp(0.0,0.08,t), 0);
   godHand.children.forEach(c => {
     if (c.material && c.material.emissive) c.material.emissive.copy(emissive);
   });
@@ -596,11 +662,18 @@ function buildVillage() {
   scene.add(totem);
 
   // Totem orb
-  const orbGeo = new THREE.SphereGeometry(0.7, 12, 12);
-  const orbMat = new THREE.MeshStandardMaterial({ color: 0xffffaa, emissive: 0xffdd44, emissiveIntensity: 1.5, roughness: 0.2 });
+  const orbGeo = new THREE.SphereGeometry(0.85, 16, 16);
+  const orbMat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffcc44, emissiveIntensity: 2.5, roughness: 0.1, metalness: 0.3 });
   const orb = new THREE.Mesh(orbGeo, orbMat);
-  orb.position.set(VILLAGE_POS.x, h + 7, VILLAGE_POS.z);
+  orb.position.set(VILLAGE_POS.x, h + 7.2, VILLAGE_POS.z);
   scene.add(orb);
+  window._totemOrb = orb;
+
+  // Point light at orb — warm village glow
+  const totemLight = new THREE.PointLight(0xffcc55, 3.5, 40);
+  totemLight.position.set(VILLAGE_POS.x, h + 7.5, VILLAGE_POS.z);
+  scene.add(totemLight);
+  window._totemLight = totemLight;
 
   // Influence ring
   const rGeo = new THREE.RingGeometry(influenceRadius - 0.4, influenceRadius + 0.4, 64);
@@ -974,12 +1047,19 @@ function updateWorldVisuals() {
   const sunColor = sunEvil.clone().lerp(sunGood, t);
   scene.children.forEach(c => { if (c.isDirectionalLight) c.color.copy(sunColor); });
 
-  // Tint terrain vertex colours toward red/dark on evil alignment
-  if (terrainMesh) terrainMesh.material.color.setRGB(
-    lerp(1.0, 0.7, Math.max(0, -alignment)),
-    lerp(1.0, 0.6, Math.max(0, -alignment)),
-    lerp(1.0, 0.6, Math.max(0, -alignment))
-  );
+  // Terrain + sky alignment
+  if (terrainMesh) terrainMesh.material.uniforms.uAlignment.value = alignment;
+  const t = (alignment + 1) / 2;
+  const skyTop = new THREE.Color().setRGB(lerp(0.08,0.18,t), lerp(0.05,0.35,t), lerp(0.15,0.75,t));
+  const skyBot = new THREE.Color().setRGB(lerp(0.35,0.62,t), lerp(0.22,0.80,t), lerp(0.22,0.98,t));
+  if (window._skyMesh) {
+    window._skyMesh.material.uniforms.uTop.value.copy(skyTop);
+    window._skyMesh.material.uniforms.uBot.value.copy(skyBot);
+  }
+  scene.background = skyBot;
+  scene.fog.color.copy(skyBot);
+  if (window._sun)     window._sun.color.setRGB(lerp(0.8,1.0,t), lerp(0.55,0.94,t), lerp(0.4,0.80,t));
+  if (window._ambient) window._ambient.color.setRGB(lerp(0.2,0.4,t), lerp(0.15,0.53,t), lerp(0.25,0.73,t));
 
 }
 
@@ -1353,8 +1433,8 @@ function initScene() {
   renderer.toneMappingExposure = 1.1;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0.45, 0.65, 0.85);
-  scene.fog = new THREE.Fog(0x7ab0d4, 120, 280);
+  scene.background = new THREE.Color(0.42, 0.62, 0.88);
+  scene.fog = new THREE.FogExp2(0x88bbdd, 0.0055);
 
   camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 600);
   camera.position.set(0, 85, 130);
@@ -1383,22 +1463,37 @@ function initScene() {
     }
   }, { passive: true });
 
+  // Sky dome — gradient shader rendered from inside
+  const skyGeo = new THREE.SphereGeometry(480, 32, 16);
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    uniforms: { uTop: { value: new THREE.Color(0.18,0.35,0.75) }, uBot: { value: new THREE.Color(0.62,0.80,0.98) } },
+    vertexShader: 'varying vec3 vPos; void main(){ vPos=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: [
+      'precision mediump float;',
+      'uniform vec3 uTop,uBot;',
+      'varying vec3 vPos;',
+      'void main(){',
+      '  float t=clamp(vPos.y/320.0,0.0,1.0);',
+      '  gl_FragColor=vec4(mix(uBot,uTop,t*t),1.0);',
+      '}'
+    ].join('\n'),
+  });
+  window._skyMesh = new THREE.Mesh(skyGeo, skyMat);
+  scene.add(window._skyMesh);
+
   // Lights
-  const sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
-  sun.position.set(60, 100, 50);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 400;
-  sun.shadow.camera.left = sun.shadow.camera.bottom = -130;
-  sun.shadow.camera.right = sun.shadow.camera.top = 130;
-  sun.shadow.bias = -0.001;
+  const sun = new THREE.DirectionalLight(0xfff0cc, 2.0);
+  sun.position.set(80, 120, 60);
+  sun.castShadow = false;
   scene.add(sun);
+  window._sun = sun;
 
-  const ambient = new THREE.AmbientLight(0x8899bb, 0.7);
+  const ambient = new THREE.AmbientLight(0x6688bb, 0.55);
   scene.add(ambient);
+  window._ambient = ambient;
 
-  const hemi = new THREE.HemisphereLight(0x87ceeb, 0x44663c, 0.5);
+  const hemi = new THREE.HemisphereLight(0x88bbff, 0x336622, 0.7);
   scene.add(hemi);
 
   composer = null; // no post-processing — direct render
@@ -1417,11 +1512,15 @@ function gameLoop() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const elapsed = clock.getElapsedTime();
 
-  // Water colour follows alignment
+  // Water animation
   if (waterMesh) {
-    const t = (alignment + 1) / 2;
-    waterMesh.material.color.setRGB(lerp(0.25,0.10,t), lerp(0.04,0.28,t), lerp(0.08,0.54,t));
+    waterMesh.material.uniforms.uTime.value = elapsed;
+    waterMesh.material.uniforms.uAlignment.value = alignment;
   }
+
+  // Totem orb pulse
+  if (window._totemOrb)   window._totemOrb.rotation.y = elapsed * 0.8;
+  if (window._totemLight) window._totemLight.intensity = 3.0 + Math.sin(elapsed * 2.2) * 0.8;
 
   // Villager updates
   for (const v of villagers) v.update(dt);
