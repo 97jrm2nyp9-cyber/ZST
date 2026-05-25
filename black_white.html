@@ -167,6 +167,15 @@ canvas { display: block; }
 #gesture-canvas {
   position: absolute; top: 0; left: 0; pointer-events: none;
 }
+/* Civilization panel */
+#civ-panel {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px; padding: 6px 18px; text-align: center;
+  pointer-events: none;
+}
+#civ-era  { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; color: #ffdd88; }
+#civ-time { font-size: 10px; letter-spacing: 1px; color: rgba(255,255,255,0.55); margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -209,6 +218,11 @@ canvas { display: block; }
   <div id="faith-bar">
     <div id="faith-label">Faith</div>
     <div id="faith-track"><div id="faith-fill"></div></div>
+  </div>
+
+  <div id="civ-panel">
+    <div id="civ-era">Primitive</div>
+    <div id="civ-time">Day 1 · Dawn</div>
   </div>
 
   <!-- Touch miracle buttons -->
@@ -397,6 +411,23 @@ let stumps         = [];   // charred stumps awaiting regrowth
 let burningObjects = [];   // currently burning trees
 let scorchDecals   = [];   // ground scorch marks
 let villageLogCount = 0;   // logs deposited by creatures
+
+// ─── Civilization & time ──────────────────────────────────────────────────────
+let gameTime         = 0;    // total seconds elapsed
+let civilizationEra  = 0;    // 0-5
+let eraBuildings     = [];   // {type,x,z} already placed
+let nextBuildTimer   = rand(20, 40);
+let sunAngle         = -Math.PI * 0.5;  // start at noon (-PI/2 = top)
+let _daylight        = 1.0;  // 0=night, 1=noon
+
+const ERAS = [
+  { id:0, name:'Primitive',   minTime:0,    minLove:0.00, minLevel:0 },
+  { id:1, name:'Tribal',      minTime:60,   minLove:0.25, minLevel:1 },
+  { id:2, name:'Agrarian',    minTime:180,  minLove:0.45, minLevel:2 },
+  { id:3, name:'Ancient',     minTime:360,  minLove:0.60, minLevel:3 },
+  { id:4, name:'Classical',   minTime:600,  minLove:0.75, minLevel:4 },
+  { id:5, name:'Enlightened', minTime:1200, minLove:0.85, minLevel:5 },
+];
 
 // Gesture
 let gestureActive = false;
@@ -2160,24 +2191,13 @@ function updateFaithUI() {
 }
 
 function updateWorldVisuals() {
-  const t = (alignment + 1) / 2; // 0=evil 1=good
+  // Terrain + grass alignment tints only — sky/lights handled by updateDayNight
   if (terrainMesh) terrainMesh.material.uniforms.uAlignment.value = alignment;
-  const skyTop = new THREE.Color().setRGB(lerp(0.08,0.18,t), lerp(0.05,0.35,t), lerp(0.15,0.75,t));
-  const skyBot = new THREE.Color().setRGB(lerp(0.35,0.62,t), lerp(0.22,0.80,t), lerp(0.22,0.98,t));
-  if (window._skyMesh) {
-    window._skyMesh.material.uniforms.uTop.value.copy(skyTop);
-    window._skyMesh.material.uniforms.uBot.value.copy(skyBot);
-    if (window._skyMesh.material.uniforms.uAlign !== undefined)
-      window._skyMesh.material.uniforms.uAlign.value = alignment;
-  }
-  scene.background = skyBot;
-  scene.fog.color.copy(skyBot);
-  if (window._sun)     window._sun.color.setRGB(lerp(0.8,1.0,t), lerp(0.55,0.94,t), lerp(0.4,0.80,t));
-  if (window._ambient) window._ambient.color.setRGB(lerp(0.2,0.4,t), lerp(0.15,0.53,t), lerp(0.25,0.73,t));
-  // Tint grass toward grey/dead when evil
-  if (window._grassMesh) {
+  const t = (alignment + 1) / 2;
+  if (window._grassMesh)
     window._grassMesh.material.color.setHSL(lerp(0.07,0.27,t), lerp(0.18,0.65,t), 1.0);
-  }
+  if (window._skyMesh && window._skyMesh.material.uniforms.uAlign !== undefined)
+    window._skyMesh.material.uniforms.uAlign.value = alignment;
 }
 
 // ─── Gesture recognition ─────────────────────────────────────────────────────
@@ -2731,6 +2751,7 @@ function initScene() {
 
   const hemi = new THREE.HemisphereLight(0x8abeee, 0x3a6822, 1.1);
   scene.add(hemi);
+  window._hemi = hemi;
 
   // Soft fill from opposite direction (sky bounce / ambient occlusion simulation)
   const fill = new THREE.DirectionalLight(0x7ab0e8, 0.6);
@@ -2774,6 +2795,440 @@ function initScene() {
   }
 }
 
+// ─── Day / Night cycle ────────────────────────────────────────────────────────
+function updateDayNight(dt) {
+  sunAngle += dt * (Math.PI * 2) / 200; // ~3.3-minute day
+  if (sunAngle > Math.PI * 2) sunAngle -= Math.PI * 2;
+
+  // sunH: +1=noon, -1=midnight; horizT: peak at sunrise/sunset
+  const sunH   = Math.sin(sunAngle - Math.PI * 0.5);
+  const horizT = clamp(1.0 - Math.abs(sunH) * 2.8, 0, 1);
+  _daylight    = clamp(sunH * 1.4 + 0.5, 0.05, 1.0);
+
+  // Sun position orbits overhead
+  const sunX = Math.cos(sunAngle) * 130;
+  const sunY = Math.max(8, sunH * 130);
+  const sunZ = Math.sin(sunAngle * 0.5 + 0.4) * 70 + 50;
+
+  if (window._sun) {
+    window._sun.position.set(sunX, sunY, sunZ);
+    window._sun.intensity = Math.max(0.0, sunH) * 3.4;
+    // Warm noon → orange sunset → off at night
+    window._sun.color.setRGB(
+      lerp(0.35, 1.0, _daylight) + horizT * 0.55,
+      lerp(0.12, 0.94, _daylight) + horizT * 0.10,
+      lerp(0.10, 0.80, _daylight) - horizT * 0.45
+    );
+    window._sun.shadow.needsUpdate = true;
+  }
+  if (window._ambient) {
+    window._ambient.intensity = lerp(0.10, 0.40, _daylight);
+    window._ambient.color.setRGB(lerp(0.08,0.38,_daylight), lerp(0.12,0.52,_daylight), lerp(0.28,0.72,_daylight));
+  }
+  if (window._hemi) window._hemi.intensity = lerp(0.12, 1.10, _daylight);
+
+  const aT = (alignment + 1) / 2; // alignment: 0=evil 1=good
+
+  // Sky colours: blend night → day → sunset, then alignment tint
+  const topDay  = new THREE.Color(0.12 * aT, 0.28 * aT, 0.72);
+  const topNight= new THREE.Color(0.01, 0.02, 0.12);
+  const topDusk = new THREE.Color(0.18, 0.08, 0.30);
+  const botDay  = new THREE.Color(0.46, 0.68 * aT, 0.96);
+  const botNight= new THREE.Color(0.02, 0.04, 0.18);
+  const botDusk = new THREE.Color(0.80, 0.36, 0.10);
+
+  const skyTop = topNight.clone().lerp(topDay, _daylight).lerp(topDusk, horizT * 0.65);
+  const skyBot = botNight.clone().lerp(botDay, _daylight).lerp(botDusk, horizT * 0.80);
+
+  // Evil alignment → purple tint
+  if (alignment < -0.25) {
+    const e = clamp((-alignment - 0.25) / 0.75, 0, 1);
+    skyTop.lerp(new THREE.Color(0.22, 0.04, 0.28), e * 0.6);
+    skyBot.lerp(new THREE.Color(0.35, 0.08, 0.22), e * 0.5);
+  }
+
+  if (window._skyMesh) {
+    const u = window._skyMesh.material.uniforms;
+    u.uTop.value.copy(skyTop);
+    if (u.uMid) u.uMid.value.lerpColors(skyBot, skyTop, 0.35);
+    u.uBot.value.copy(skyBot);
+    u.uSunDir.value.set(sunX, sunY, sunZ).normalize();
+    if (u.uAlign) u.uAlign.value = alignment;
+  }
+  scene.background = skyBot;
+  scene.fog.color.copy(skyBot);
+}
+
+// ─── Civilization ─────────────────────────────────────────────────────────────
+function updateCivilization(dt) {
+  gameTime += dt;
+
+  // Check era advancement
+  const love    = (alignment + 1) / 2;
+  const avgLvl  = creatures.length > 0
+    ? creatures.reduce((s, c) => s + c.intelligenceLevel, 0) / creatures.length : 0;
+
+  let newEra = 0;
+  for (let i = ERAS.length - 1; i >= 0; i--) {
+    const e = ERAS[i];
+    if (gameTime >= e.minTime && love >= e.minLove && avgLvl >= e.minLevel) {
+      newEra = i; break;
+    }
+  }
+  if (newEra > civilizationEra) {
+    civilizationEra = newEra;
+    showMiracleFlash(`Era: ${ERAS[newEra].name}!`, '#ffdd88');
+    spawnBurst(VILLAGE_POS.clone().add(v3(0, 6, 0)), 0xffdd44, 50, 10, 0.28, 3.0);
+    playTone(220, 'triangle', 1.2, 0.22);
+    playTone(330, 'triangle', 0.8, 0.18);
+  }
+
+  // Update HUD
+  const eraEl = document.getElementById('civ-era');
+  const timeEl = document.getElementById('civ-time');
+  if (eraEl) eraEl.textContent = ERAS[civilizationEra].name.toUpperCase();
+  if (timeEl) {
+    const day  = Math.floor(gameTime / 200) + 1;
+    const h    = Math.sin(sunAngle - Math.PI * 0.5);
+    const phase= h > 0.6 ? 'Noon' : h > 0.2 ? 'Afternoon' : h > -0.1 ? 'Dusk'
+               : h > -0.5 ? 'Night' : h > -0.8 ? 'Dawn' : 'Dawn';
+    timeEl.textContent = `Day ${day} · ${phase}`;
+  }
+
+  // Creature autonomous building
+  nextBuildTimer -= dt;
+  if (nextBuildTimer <= 0) {
+    nextBuildTimer = rand(25, 55);
+    if (creatures.length > 0 && alignment > -0.2) considerBuilding();
+  }
+}
+
+function tooCloseToBuilding(x, z, minDist) {
+  if (Math.hypot(x - VILLAGE_POS.x, z - VILLAGE_POS.z) < minDist * 0.7) return true;
+  return eraBuildings.some(b => Math.hypot(b.x - x, b.z - z) < minDist);
+}
+
+function considerBuilding() {
+  const maxPerEra = [2, 4, 6, 8, 10, 14];
+  if (eraBuildings.length >= (maxPerEra[civilizationEra] || 14)) return;
+
+  // Pool of available structure types per era
+  const pool = [];
+  if (civilizationEra >= 0) pool.push('stoneCircle', 'stoneCircle');
+  if (civilizationEra >= 1) pool.push('totemPole', 'palisade');
+  if (civilizationEra >= 2) pool.push('well', 'farm', 'granary');
+  if (civilizationEra >= 3) pool.push('pyramid', 'obelisk', 'stoneHead');
+  if (civilizationEra >= 4) pool.push('temple', 'handMonument');
+  if (civilizationEra >= 5) pool.push('observatory', 'grandTower');
+
+  const type = pool[Math.floor(Math.random() * pool.length)];
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const r = rand(16, 45 + civilizationEra * 8);
+    const a = Math.random() * Math.PI * 2;
+    const x = VILLAGE_POS.x + Math.cos(a) * r;
+    const z = VILLAGE_POS.z + Math.sin(a) * r;
+    const h = getTerrainHeight(x, z);
+    if (h < 0.6 || h > 14 || tooCloseToBuilding(x, z, 14)) continue;
+    eraBuildings.push({ type, x, z });
+    scheduleConstruction(type, x, z, h);
+    return;
+  }
+}
+
+function scheduleConstruction(type, x, z, h) {
+  showMiracleFlash('Building…', '#88aaff');
+  spawnBurst(v3(x, h + 1, z), 0x88aaff, 16, 4, 0.18, 1.5);
+  const delay = rand(3500, 8000);
+  setTimeout(() => {
+    const buildFn = STRUCTURES[type];
+    if (!buildFn) return;
+    const meshes = buildFn(x, z, h);
+    if (meshes && meshes.length > 0) {
+      growStructure(meshes);
+      setTimeout(() => {
+        spawnBurst(v3(x, h + 5, z), 0xffcc44, 35, 9, 0.26, 2.5);
+        showMiracleFlash(`${type} built!`, '#ffcc44');
+        changeAlignment(0.03);
+        creatures.forEach(c => c.gainExperience(18));
+      }, meshes.length * 200 + 500);
+    }
+  }, delay);
+}
+
+function growStructure(meshes) {
+  meshes.forEach((m, i) => {
+    m.visible = false;
+    setTimeout(() => {
+      m.visible = true;
+      m.scale.set(0.01, 0.01, 0.01);
+      const grow = () => {
+        m.scale.multiplyScalar(1.07);
+        if (m.scale.x < 1.0) requestAnimationFrame(grow);
+        else m.scale.setScalar(1.0);
+      };
+      requestAnimationFrame(grow);
+    }, i * 200);
+  });
+}
+
+// ─── Structure building functions ─────────────────────────────────────────────
+function _addMesh(geo, mat, px, py, pz, rx, ry, rz, sx, sy, sz) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(px, py, pz);
+  if (rx !== undefined) m.rotation.set(rx, ry, rz);
+  if (sx !== undefined) m.scale.set(sx, sy, sz);
+  m.castShadow = true; m.receiveShadow = true;
+  scene.add(m);
+  return m;
+}
+
+function buildStoneCircle(x, z, h) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0x888070, roughness: 0.88, metalness: 0.02 });
+  const meshes = [];
+  const n = 10, r = rand(5, 8);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const sx = x + Math.cos(a) * r, sz = z + Math.sin(a) * r;
+    const sh = getTerrainHeight(sx, sz);
+    const ht = rand(1.4, 2.6);
+    meshes.push(_addMesh(new THREE.BoxGeometry(rand(0.55,0.85), ht, rand(0.4,0.7)), mat,
+      sx, sh + ht / 2, sz, 0, Math.random() * 0.25, 0));
+  }
+  // Lintels
+  for (let i = 0; i < n; i += 2) {
+    const a = ((i + 0.5) / n) * Math.PI * 2;
+    const mx = x + Math.cos(a) * r, mz = z + Math.sin(a) * r;
+    const mh = getTerrainHeight(mx, mz);
+    meshes.push(_addMesh(new THREE.BoxGeometry(2.4, 0.4, 0.6), mat,
+      mx, mh + 2.6, mz, 0, a + Math.PI / 2, 0));
+  }
+  return meshes;
+}
+
+function buildTotemPole(x, z, h) {
+  const mat  = new THREE.MeshStandardMaterial({ color: 0x7a5020, roughness: 0.88, metalness: 0 });
+  const face = new THREE.MeshStandardMaterial({ color: 0xd08040, roughness: 0.80, metalness: 0 });
+  const meshes = [];
+  const totalH = 10;
+  meshes.push(_addMesh(new THREE.CylinderGeometry(0.45, 0.55, totalH, 8), mat, x, h + totalH/2, z));
+  [1.5, 4.0, 6.5, 8.8].forEach((fy, i) => {
+    meshes.push(_addMesh(new THREE.BoxGeometry(1.5, 1.2, 0.6), face, x, h + fy, z + 0.6,
+      0, 0, 0));
+    // Wing spans
+    if (i % 2 === 0) {
+      meshes.push(_addMesh(new THREE.BoxGeometry(2.2, 0.5, 0.5), mat, x, h + fy + 0.5, z, 0, 0, 0));
+    }
+  });
+  return meshes;
+}
+
+function buildPalisade(x, z, h) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0x6b4820, roughness: 0.90, metalness: 0 });
+  const meshes = [];
+  const len = rand(12, 20), posts = Math.floor(len / 1.4);
+  for (let i = 0; i < posts; i++) {
+    const px = x + (i - posts / 2) * 1.4;
+    const ph = getTerrainHeight(px, z);
+    const ht = rand(2.2, 3.0);
+    meshes.push(_addMesh(new THREE.CylinderGeometry(0.22, 0.28, ht, 6), mat, px, ph + ht/2, z));
+  }
+  return meshes;
+}
+
+function buildWellStructure(x, z, h) {
+  const stone = new THREE.MeshStandardMaterial({ color: 0x888070, roughness: 0.85, metalness: 0 });
+  const wood  = new THREE.MeshStandardMaterial({ color: 0x5c3317, roughness: 0.90, metalness: 0 });
+  const water = new THREE.MeshStandardMaterial({ color: 0x2255aa, roughness: 0.05, metalness: 0.1 });
+  const meshes = [];
+  meshes.push(_addMesh(new THREE.CylinderGeometry(1.25, 1.35, 1.4, 12), stone, x, h + 0.7, z));
+  meshes.push(_addMesh(new THREE.CylinderGeometry(1.10, 1.10, 0.1, 12), water, x, h + 1.4, z));
+  meshes.push(_addMesh(new THREE.CylinderGeometry(0.08, 0.08, 2.8, 5), wood, x - 1.1, h + 2.2, z));
+  meshes.push(_addMesh(new THREE.CylinderGeometry(0.08, 0.08, 2.8, 5), wood, x + 1.1, h + 2.2, z));
+  meshes.push(_addMesh(new THREE.CylinderGeometry(0.07, 0.07, 2.6, 5), wood, x, h + 2.8, z, 0, 0, Math.PI / 2));
+  return meshes;
+}
+
+function buildFarmPlot(x, z, h) {
+  const soil = new THREE.MeshStandardMaterial({ color: 0x5c3a1a, roughness: 0.97, metalness: 0 });
+  const crop = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.29, 0.72, 0.33), roughness: 0.92, metalness: 0 });
+  const meshes = [];
+  meshes.push(_addMesh(new THREE.BoxGeometry(10, 0.18, 8), soil, x, h + 0.09, z));
+  for (let row = -2.8; row <= 2.8; row += 1.2) {
+    for (let col = -4.2; col <= 4.2; col += 1.1) {
+      meshes.push(_addMesh(new THREE.ConeGeometry(0.14, rand(0.45, 0.85), 4), crop,
+        x + col + rand(-0.1, 0.1), h + 0.45, z + row + rand(-0.1, 0.1)));
+    }
+  }
+  return meshes;
+}
+
+function buildGranaryStructure(x, z, h) {
+  const wall = new THREE.MeshStandardMaterial({ color: 0xc8a060, roughness: 0.82, metalness: 0 });
+  const roof = new THREE.MeshStandardMaterial({ color: 0x884422, roughness: 0.88, metalness: 0 });
+  const meshes = [];
+  meshes.push(_addMesh(new THREE.BoxGeometry(7, 4.5, 5), wall, x, h + 2.25, z));
+  meshes.push(_addMesh(new THREE.ConeGeometry(5.2, 3.2, 4), roof, x, h + 6.0, z, 0, Math.PI/4, 0));
+  // Door
+  meshes.push(_addMesh(new THREE.BoxGeometry(1.2, 2.0, 0.15),
+    new THREE.MeshStandardMaterial({ color: 0x4a2a0a, roughness: 0.92, metalness: 0 }),
+    x, h + 1.0, z - 2.55));
+  return meshes;
+}
+
+function buildPyramid(x, z, h) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xd0b870, roughness: 0.72, metalness: 0.04 });
+  const cap = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.15, metalness: 0.85,
+    emissive: 0xaa8800, emissiveIntensity: 0.45 });
+  const meshes = [];
+  const levels = 6, blockH = 2.6;
+  for (let i = 0; i < levels; i++) {
+    const s = (levels - i) / levels * (levels * 2.8);
+    meshes.push(_addMesh(new THREE.BoxGeometry(s, blockH, s), mat, x, h + i * blockH + blockH/2, z));
+  }
+  meshes.push(_addMesh(new THREE.ConeGeometry(1.6, 2.5, 4), cap, x, h + levels * blockH + 1.25, z, 0, Math.PI/4, 0));
+  // Point light at capstone for glow
+  const pl = new THREE.PointLight(0xffcc44, 2.5, 35);
+  pl.position.set(x, h + levels * blockH + 2.8, z);
+  scene.add(pl);
+  return meshes;
+}
+
+function buildObelisk(x, z, h) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xd8c8a8, roughness: 0.62, metalness: 0.08 });
+  const cap = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.1, metalness: 0.9,
+    emissive: 0xffaa00, emissiveIntensity: 0.55 });
+  const meshes = [];
+  meshes.push(_addMesh(new THREE.BoxGeometry(2.2, 0.9, 2.2), mat, x, h + 0.45, z));
+  meshes.push(_addMesh(new THREE.CylinderGeometry(0.45, 0.72, 14, 4), mat, x, h + 7.9, z, 0, Math.PI/4, 0));
+  meshes.push(_addMesh(new THREE.ConeGeometry(0.5, 1.8, 4), cap, x, h + 15.7, z, 0, Math.PI/4, 0));
+  return meshes;
+}
+
+function buildStoneHead(x, z, h) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xb8a888, roughness: 0.78, metalness: 0 });
+  const eye = new THREE.MeshStandardMaterial({ color: 0x222244, roughness: 0.4, metalness: 0.1,
+    emissive: 0x111133, emissiveIntensity: 0.6 });
+  const meshes = [];
+  meshes.push(_addMesh(new THREE.CylinderGeometry(1.4, 1.8, 3.5, 8), mat, x, h + 1.75, z)); // neck/base
+  meshes.push(_addMesh(new THREE.SphereGeometry(2.5, 12, 10), mat, x, h + 5.8, z));           // head
+  meshes.push(_addMesh(new THREE.BoxGeometry(3.2, 1.0, 0.5), mat, x, h + 5.2, z + 2.3));     // jaw
+  meshes.push(_addMesh(new THREE.SphereGeometry(0.5, 8, 8), eye, x - 0.9, h + 6.3, z + 2.0)); // L eye
+  meshes.push(_addMesh(new THREE.SphereGeometry(0.5, 8, 8), eye, x + 0.9, h + 6.3, z + 2.0)); // R eye
+  return meshes;
+}
+
+function buildTemple(x, z, h) {
+  const stone = new THREE.MeshStandardMaterial({ color: 0xe8e0ce, roughness: 0.65, metalness: 0 });
+  const gold  = new THREE.MeshStandardMaterial({ color: 0xf0d860, roughness: 0.45, metalness: 0.3 });
+  const meshes = [];
+  // Steps
+  for (let s = 0; s < 3; s++) {
+    meshes.push(_addMesh(new THREE.BoxGeometry(15-s, 0.5, 11-s*0.5), stone, x, h + s*0.5+0.25, z));
+  }
+  // Platform
+  meshes.push(_addMesh(new THREE.BoxGeometry(13, 1.2, 9.5), stone, x, h + 2.1, z));
+  // Columns (2 rows × 5)
+  for (let col = 0; col < 5; col++) {
+    const cx = x - 5 + col * 2.5;
+    [-3.8, 3.8].forEach(cz => {
+      meshes.push(_addMesh(new THREE.CylinderGeometry(0.36, 0.42, 7, 8), stone, cx, h + 6.2, z + cz));
+    });
+  }
+  // Entablature
+  meshes.push(_addMesh(new THREE.BoxGeometry(13, 0.9, 9.5), stone, x, h + 10.1, z));
+  // Pediment
+  meshes.push(_addMesh(new THREE.ConeGeometry(8, 3.8, 4), gold, x, h + 12.9, z, 0, Math.PI/4, 0));
+  // Glow light
+  const pl = new THREE.PointLight(0xfff0cc, 1.8, 30);
+  pl.position.set(x, h + 8, z);
+  scene.add(pl);
+  return meshes;
+}
+
+function buildHandMonument(x, z, h) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xc8c0b0, roughness: 0.70, metalness: 0.05 });
+  const meshes = [];
+  meshes.push(_addMesh(new THREE.CylinderGeometry(1.3, 1.8, 12, 8), mat, x, h + 6, z));
+  meshes.push(_addMesh(new THREE.BoxGeometry(5, 1.4, 6), mat, x, h + 13, z));
+  [[-1.4, 0], [-0.47, 0], [0.47, 0], [1.4, 0]].forEach(([fx]) => {
+    const len = rand(2.2, 3.8);
+    meshes.push(_addMesh(new THREE.CylinderGeometry(0.26, 0.34, len, 6), mat, x+fx, h+13.5+len/2, z-2.2));
+  });
+  meshes.push(_addMesh(new THREE.CylinderGeometry(0.30, 0.38, 2.4, 6), mat, x+2.8, h+13.5, z+0.6, 0, 0, -0.6));
+  // Emissive eye/gem in palm
+  const gem = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 10),
+    new THREE.MeshStandardMaterial({ color: 0xaaddff, emissive: 0x44aaff, emissiveIntensity: 2.5, roughness: 0.05, metalness: 0.4 }));
+  gem.position.set(x, h + 13.2, z + 2.8);
+  scene.add(gem); meshes.push(gem);
+  const pl = new THREE.PointLight(0x44aaff, 3.0, 40);
+  pl.position.set(x, h + 14, z + 3);
+  scene.add(pl);
+  return meshes;
+}
+
+function buildObservatory(x, z, h) {
+  const stone = new THREE.MeshStandardMaterial({ color: 0xe0d8c8, roughness: 0.65, metalness: 0.05 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x88b8d8, roughness: 0.1, metalness: 0.3,
+    transparent: true, opacity: 0.80, emissive: 0x224466, emissiveIntensity: 0.4 });
+  const meshes = [];
+  meshes.push(_addMesh(new THREE.CylinderGeometry(5.5, 6, 4.5, 14), stone, x, h + 2.25, z));
+  meshes.push(_addMesh(new THREE.SphereGeometry(5.5, 16, 8, 0, Math.PI*2, 0, Math.PI/2), glass, x, h + 4.5, z));
+  // Telescope
+  meshes.push(_addMesh(new THREE.CylinderGeometry(0.28, 0.48, 7, 8), stone, x + 1.5, h + 9, z, 0, 0, -0.35));
+  const pl = new THREE.PointLight(0x8899ff, 2.0, 35);
+  pl.position.set(x, h + 7, z);
+  scene.add(pl);
+  return meshes;
+}
+
+function buildGrandTower(x, z, h) {
+  const stone = new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.70, metalness: 0.03 });
+  const dark  = new THREE.MeshStandardMaterial({ color: 0x554433, roughness: 0.85, metalness: 0 });
+  const meshes = [];
+  // Tower shaft with slight taper
+  for (let i = 0; i < 7; i++) {
+    const w = lerp(5.5, 4.0, i / 7);
+    meshes.push(_addMesh(new THREE.BoxGeometry(w, 4, w), stone, x, h + i * 4 + 2, z));
+  }
+  // Battlements at top
+  const topH = h + 7 * 4;
+  for (let b = 0; b < 8; b++) {
+    const ba = (b / 8) * Math.PI * 2;
+    const br = 2.2;
+    meshes.push(_addMesh(new THREE.BoxGeometry(0.7, 1.2, 0.7), dark,
+      x + Math.cos(ba) * br, topH + 0.6, z + Math.sin(ba) * br));
+  }
+  // Pointed roof
+  meshes.push(_addMesh(new THREE.ConeGeometry(3.2, 5, 4), dark, x, topH + 4.5, z, 0, Math.PI/4, 0));
+  // Beacon light
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8),
+    new THREE.MeshStandardMaterial({ color: 0xff8800, emissive: 0xff5500, emissiveIntensity: 3.0 }));
+  beacon.position.set(x, topH + 7.5, z);
+  scene.add(beacon); meshes.push(beacon);
+  const pl = new THREE.PointLight(0xff6600, 4.0, 60);
+  pl.position.set(x, topH + 8, z);
+  scene.add(pl);
+  return meshes;
+}
+
+// Dispatch table
+const STRUCTURES = {
+  stoneCircle:  buildStoneCircle,
+  totemPole:    buildTotemPole,
+  palisade:     buildPalisade,
+  well:         buildWellStructure,
+  farm:         buildFarmPlot,
+  granary:      buildGranaryStructure,
+  pyramid:      buildPyramid,
+  obelisk:      buildObelisk,
+  stoneHead:    buildStoneHead,
+  temple:       buildTemple,
+  handMonument: buildHandMonument,
+  observatory:  buildObservatory,
+  grandTower:   buildGrandTower,
+};
+
 // ─── Tutorial fade ─────────────────────────────────────────────────────────────
 function initTutorial() {
   setTimeout(() => {
@@ -2792,6 +3247,10 @@ function gameLoop() {
     waterMesh.material.uniforms.uTime.value = elapsed;
     waterMesh.material.uniforms.uAlignment.value = alignment;
   }
+
+  // Day/night + civilization advancement
+  updateDayNight(dt);
+  updateCivilization(dt);
 
   // Totem orb pulse
   if (window._totemOrb)   window._totemOrb.rotation.y = elapsed * 0.8;
