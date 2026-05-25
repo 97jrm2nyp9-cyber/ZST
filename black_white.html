@@ -230,7 +230,6 @@ canvas { display: block; }
 <canvas id="c"></canvas>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.150.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/controls/OrbitControls.js"></script>
 
 <script>
 
@@ -264,7 +263,8 @@ const INFLUENCE_MAX  = 120;
 const VILLAGE_POS    = new THREE.Vector3(18, 0, 10);
 
 // ─── Globals ─────────────────────────────────────────────────────────────────
-let renderer, scene, camera, composer, controls;
+let renderer, scene, camera, composer;
+let camDist = 150;
 let clock = new THREE.Clock();
 let terrainMesh, waterMesh;
 let godHand, handGroup;
@@ -1360,14 +1360,28 @@ function initScene() {
   camera.position.set(0, 85, 130);
   camera.lookAt(0, 0, 0);
 
-  controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.06;
-  controls.minDistance = 30;
-  controls.maxDistance = 220;
-  controls.maxPolarAngle = Math.PI * 0.46;
-  controls.mouseButtons = { RIGHT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, LEFT: null };
-  controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_PAN };
+  // Simple zoom — scroll wheel on desktop, pinch on mobile
+  function updateCam() {
+    camera.position.set(0, camDist * 0.62, camDist * 0.88);
+    camera.lookAt(0, 0, 0);
+  }
+  renderer.domElement.addEventListener('wheel', e => {
+    camDist = clamp(camDist + e.deltaY * 0.25, 45, 240);
+    updateCam();
+  }, { passive: true });
+  let _pinch0 = 0;
+  window.addEventListener('touchstart', e => {
+    if (e.touches.length === 2)
+      _pinch0 = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  }, { passive: true });
+  window.addEventListener('touchmove', e => {
+    if (e.touches.length === 2) {
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      camDist = clamp(camDist - (d - _pinch0) * 0.4, 45, 240);
+      _pinch0 = d;
+      updateCam();
+    }
+  }, { passive: true });
 
   // Lights
   const sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
@@ -1402,8 +1416,6 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
   const dt = Math.min(clock.getDelta(), 0.05);
   const elapsed = clock.getElapsedTime();
-
-  controls.update();
 
   // Water colour follows alignment
   if (waterMesh) {
