@@ -1,0 +1,71 @@
+# Scoring weights, acquirer fit matrix, sector premium table.
+# All tunable without touching code.
+
+weights:
+  deal_stage: 0.30
+  strategic_fit: 0.25
+  valuation_discount: 0.20
+  premium_history: 0.15
+  liquidity: 0.10
+
+deal_stage_scores:
+  none: 0
+  rumor: 40
+  active_review: 75
+  announced: 100
+
+# Historical median takeover premium by sector (%), used for est. takeout value
+# and for the premium_history sub-score (scaled 0-100 across the row).
+sector_premium_pct:
+  market_data: 32
+  fx_venue: 28
+  fixed_income_venue: 30
+  clearing_post_trade: 22
+  smaller_exchange: 25
+  fintech_infra: 38
+
+# Acquirer x sector-tag preference matrix (0-100).
+# Each row sums to ~100 reflecting strategic priorities.
+acquirer_fit:
+  ICE:
+    market_data: 25
+    fx_venue: 20
+    fixed_income_venue: 25
+    clearing_post_trade: 20
+    smaller_exchange: 5
+    fintech_infra: 5
+  CME:
+    market_data: 15
+    fx_venue: 30
+    fixed_income_venue: 15
+    clearing_post_trade: 25
+    smaller_exchange: 5
+    fintech_infra: 10
+  NDAQ:
+    market_data: 30
+    fx_venue: 5
+    fixed_income_venue: 15
+    clearing_post_trade: 15
+    smaller_exchange: 5
+    fintech_infra: 30
+  LSEG:
+    market_data: 40
+    fx_venue: 15
+    fixed_income_venue: 20
+    clearing_post_trade: 15
+    smaller_exchange: 5
+    fintech_infra: 5
+  DB1:
+    market_data: 20
+    fx_venue: 15
+    fixed_income_venue: 20
+    clearing_post_trade: 30
+    smaller_exchange: 10
+    fintech_infra: 5
+  CBOE:
+    market_data: 25
+    fx_venue: 25
+    fixed_income_venue: 10
+    clearing_post_trade: 15
+    smaller_exchange: 20
+    fintech_infra: 5

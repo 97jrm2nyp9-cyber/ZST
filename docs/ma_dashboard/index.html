@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>M&amp;A Target Dashboard — Financial Exchange Acquirer Lens</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link href="https://unpkg.com/tabulator-tables@6.2.5/dist/css/tabulator_midnight.min.css" rel="stylesheet">
+<script src="https://unpkg.com/tabulator-tables@6.2.5/dist/js/tabulator.min.js"></script>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --amber: #d29922;
+    --red: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text); margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  .controls {
+    padding: 12px 24px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    background: var(--panel);
+  }
+  .controls label { font-size: 12px; color: var(--muted); margin-right: 6px; }
+  select, input[type=range] {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    padding: 4px 8px; border-radius: 4px; font-size: 13px;
+  }
+  .chips { display: inline-flex; gap: 6px; }
+  .chip {
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    padding: 3px 10px; border-radius: 12px; font-size: 12px; cursor: pointer;
+    user-select: none;
+  }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #0d1117; }
+  #table { margin: 0 24px 24px; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 600;
+  }
+  .badge.none { background: #21262d; color: var(--muted); }
+  .badge.rumor { background: #3b2e0d; color: var(--amber); }
+  .badge.active_review { background: #0d3b2e; color: var(--green); }
+  .badge.announced { background: #1f2b5e; color: var(--accent); }
+  .barwrap {
+    display: inline-block; width: 110px; height: 14px;
+    background: #21262d; border-radius: 3px; vertical-align: middle;
+    position: relative; overflow: hidden;
+  }
+  .bar { height: 100%; background: var(--accent); }
+  .barwrap span {
+    position: absolute; top: 0; left: 6px; line-height: 14px;
+    font-size: 11px; color: var(--text);
+  }
+  .sub-expand { padding: 12px 20px; background: #0b0f14; border-top: 1px solid var(--border); }
+  .sub-expand h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); font-weight: 500; }
+  .sub-row { display: grid; grid-template-columns: 160px 220px 1fr; gap: 8px; margin: 4px 0; align-items: center; font-size: 12px; }
+  .sub-row .label { color: var(--muted); }
+  .sub-row .barwrap { width: 220px; }
+  .raw { font-size: 11px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>M&amp;A Target Dashboard</h1>
+  <span class="meta">Acquirer lens: large financial exchange</span>
+  <span class="meta" id="updated"></span>
+</header>
+
+<div class="controls">
+  <div>
+    <label for="acquirer">Acquirer</label>
+    <select id="acquirer">
+      <option value="ICE">Intercontinental Exchange (ICE)</option>
+      <option value="CME">CME Group</option>
+      <option value="NDAQ">Nasdaq Inc</option>
+      <option value="LSEG" selected>LSE Group</option>
+      <option value="DB1">Deutsche Börse</option>
+      <option value="CBOE">CBOE Global Markets</option>
+    </select>
+  </div>
+  <div>
+    <label>Deal stage</label>
+    <span class="chips" id="stage-chips">
+      <span class="chip active" data-stage="none">none</span>
+      <span class="chip active" data-stage="rumor">rumor</span>
+      <span class="chip active" data-stage="active_review">active review</span>
+      <span class="chip active" data-stage="announced">announced</span>
+    </span>
+  </div>
+  <div>
+    <label for="minscore">Min composite</label>
+    <input type="range" id="minscore" min="0" max="100" value="0" step="1" />
+    <span id="minscore-val" class="meta">0</span>
+  </div>
+  <div class="meta" style="margin-left:auto" id="count"></div>
+</div>
+
+<div id="table"></div>
+
+<script>
+const DATA_URL = "./data/candidates.json";
+const META_URL = "./data/last_updated.json";
+let DATA = null;
+let META = null;
+let activeStages = new Set(["none", "rumor", "active_review", "announced"]);
+let minScore = 0;
+let table = null;
+
+function bar(v, color) {
+  if (v == null || isNaN(v)) return '<span class="meta">—</span>';
+  const w = Math.max(0, Math.min(100, v));
+  const c = color || "var(--accent)";
+  return `<div class="barwrap"><div class="bar" style="width:${w}%;background:${c}"></div><span>${v.toFixed(0)}</span></div>`;
+}
+
+function badge(stage) {
+  const label = stage.replace("_", " ");
+  return `<span class="badge ${stage}">${label}</span>`;
+}
+
+function fmtB(x) {
+  return x == null ? "—" : "$" + x.toFixed(2) + "B";
+}
+
+function fmtPrice(x) {
+  return x == null ? "—" : "$" + x.toFixed(2);
+}
+
+function strategicFitFor(row, acquirer) {
+  const matrix = DATA.acquirer_fit[acquirer] || {};
+  const w = matrix[row.sector_tag] || 0;
+  // Matrix values are 0-100 (row sums to ~100). Scale to 0-100.
+  // Highest reachable value in any row is whatever the max tag is for that row.
+  const maxInRow = Math.max(...Object.values(matrix));
+  if (maxInRow <= 0) return 0;
+  return 100 * (w / maxInRow);
+}
+
+function composite(row, acquirer) {
+  const w = DATA.weights;
+  const sf = strategicFitFor(row, acquirer);
+  return row.composite_base + w.strategic_fit * sf;
+}
+
+function buildRows() {
+  const acquirer = document.getElementById("acquirer").value;
+  return DATA.candidates.map(r => {
+    const sf = strategicFitFor(r, acquirer);
+    const comp = composite(r, acquirer);
+    return {
+      ...r,
+      score_strategic_fit: sf,
+      composite: comp,
+    };
+  });
+}
+
+function passesFilters(row) {
+  if (!activeStages.has(row.deal_stage)) return false;
+  if (row.composite < minScore) return false;
+  return true;
+}
+
+function renderTable() {
+  const rows = buildRows().filter(passesFilters);
+  rows.sort((a, b) => b.composite - a.composite);
+  document.getElementById("count").textContent = rows.length + " candidates";
+
+  if (table) { table.replaceData(rows); return; }
+
+  table = new Tabulator("#table", {
+    data: rows,
+    layout: "fitDataStretch",
+    height: "70vh",
+    rowFormatter: () => {},
+    columns: [
+      { title: "Ticker", field: "ticker", width: 100 },
+      { title: "Name", field: "name", width: 240 },
+      { title: "Sector", field: "sector_tag", width: 160,
+        formatter: c => c.getValue().replace(/_/g, " ") },
+      { title: "Deal stage", field: "deal_stage", width: 130,
+        formatter: c => badge(c.getValue()) },
+      { title: "Composite", field: "composite", width: 150,
+        formatter: c => bar(c.getValue()), sorter: "number" },
+      { title: "Last price", field: "price", width: 110,
+        formatter: c => fmtPrice(c.getValue()) },
+      { title: "Market cap", field: "market_cap_b", width: 130,
+        formatter: c => fmtB(c.getValue()) },
+      { title: "Est. takeout", field: "est_takeout_value_b", width: 130,
+        formatter: c => fmtB(c.getValue()) },
+    ],
+    rowClick: (e, row) => {
+      const existing = row.getElement().nextSibling;
+      if (existing && existing.classList && existing.classList.contains("sub-expand")) {
+        existing.remove();
+        return;
+      }
+      const d = row.getData();
+      const div = document.createElement("div");
+      div.className = "sub-expand";
+      div.innerHTML = `
+        <h4>Sub-score breakdown — ${d.ticker} (${d.name})</h4>
+        <div class="sub-row"><span class="label">Deal stage</span>${bar(d.score_deal_stage, "var(--amber)")}<span class="meta">weight 30%</span></div>
+        <div class="sub-row"><span class="label">Strategic fit</span>${bar(d.score_strategic_fit, "var(--accent)")}<span class="meta">weight 25% — recomputed per acquirer</span></div>
+        <div class="sub-row"><span class="label">Valuation discount</span>${bar(d.score_valuation_discount, "var(--green)")}<span class="meta">weight 20%</span></div>
+        <div class="sub-row"><span class="label">Premium history</span>${bar(d.score_premium_history, "var(--amber)")}<span class="meta">weight 15%</span></div>
+        <div class="sub-row"><span class="label">Liquidity</span>${bar(d.score_liquidity, "var(--muted)")}<span class="meta">weight 10%</span></div>
+        <div class="raw">EV/EBITDA: ${d.ev_ebitda ?? "—"} · Trailing P/E: ${d.trailing_pe ?? "—"} · 30d avg $vol: ${d.avg_dollar_volume_30d ? (d.avg_dollar_volume_30d/1e6).toFixed(1)+"M" : "—"} · Peer group: ${d.peer_group}</div>
+      `;
+      row.getElement().parentNode.insertBefore(div, row.getElement().nextSibling);
+    },
+  });
+}
+
+async function init() {
+  const [dataRes, metaRes] = await Promise.all([fetch(DATA_URL), fetch(META_URL)]);
+  DATA = await dataRes.json();
+  META = await metaRes.json();
+  document.getElementById("updated").textContent = "Updated " + META.generated_at_utc;
+
+  document.getElementById("acquirer").addEventListener("change", renderTable);
+
+  document.querySelectorAll("#stage-chips .chip").forEach(el => {
+    el.addEventListener("click", () => {
+      el.classList.toggle("active");
+      const stage = el.dataset.stage;
+      if (el.classList.contains("active")) activeStages.add(stage);
+      else activeStages.delete(stage);
+      renderTable();
+    });
+  });
+
+  const slider = document.getElementById("minscore");
+  slider.addEventListener("input", () => {
+    minScore = +slider.value;
+    document.getElementById("minscore-val").textContent = minScore;
+    renderTable();
+  });
+
+  renderTable();
+}
+
+init().catch(e => {
+  document.getElementById("table").innerHTML =
+    '<div style="color:var(--red);padding:24px">Failed to load data: ' + e.message + '</div>';
+});
+</script>
+</body>
+</html>

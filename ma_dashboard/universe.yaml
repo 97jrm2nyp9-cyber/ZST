@@ -1,0 +1,268 @@
+# Curated M&A candidate universe.
+#
+# sector_tag is one of: market_data | fx_venue | fixed_income_venue |
+#                      clearing_post_trade | smaller_exchange | fintech_infra
+# deal_stage is one of: none | rumor | active_review | announced
+# peer_group groups names for cross-sectional valuation z-scoring.
+# is_private candidates pull no live metrics and fall back to sector medians.
+# static_* fields are seed values used when live data is unavailable
+# (sandbox without network, first deploy before scheduled refresh).
+
+candidates:
+  # ---- Market data / analytics ----
+  - ticker: FDS
+    name: FactSet Research Systems
+    sector_tag: market_data
+    peer_group: market_data
+    deal_stage: none
+    is_private: false
+    static_price: 445.0
+    static_market_cap_b: 16.9
+    static_ev_ebitda: 22.0
+    static_trailing_pe: 28.0
+    static_avg_dollar_volume_30d: 75000000
+  - ticker: MORN
+    name: Morningstar
+    sector_tag: market_data
+    peer_group: market_data
+    deal_stage: none
+    is_private: false
+    static_price: 295.0
+    static_market_cap_b: 12.6
+    static_ev_ebitda: 24.5
+    static_trailing_pe: 36.0
+    static_avg_dollar_volume_30d: 35000000
+  - ticker: MSCI
+    name: MSCI Inc
+    sector_tag: market_data
+    peer_group: market_data
+    deal_stage: none
+    is_private: false
+    static_price: 575.0
+    static_market_cap_b: 45.0
+    static_ev_ebitda: 26.0
+    static_trailing_pe: 38.0
+    static_avg_dollar_volume_30d: 280000000
+  - ticker: SPGI
+    name: S&P Global
+    sector_tag: market_data
+    peer_group: market_data
+    deal_stage: none
+    is_private: false
+    static_price: 510.0
+    static_market_cap_b: 159.0
+    static_ev_ebitda: 23.0
+    static_trailing_pe: 33.0
+    static_avg_dollar_volume_30d: 600000000
+  - ticker: FICO
+    name: Fair Isaac
+    sector_tag: market_data
+    peer_group: market_data
+    deal_stage: none
+    is_private: false
+    static_price: 1850.0
+    static_market_cap_b: 45.0
+    static_ev_ebitda: 45.0
+    static_trailing_pe: 70.0
+    static_avg_dollar_volume_30d: 350000000
+
+  # ---- Fixed-income / FX venues ----
+  - ticker: TW
+    name: Tradeweb Markets
+    sector_tag: fixed_income_venue
+    peer_group: trading_venue
+    deal_stage: rumor
+    is_private: false
+    static_price: 138.0
+    static_market_cap_b: 32.5
+    static_ev_ebitda: 28.0
+    static_trailing_pe: 56.0
+    static_avg_dollar_volume_30d: 180000000
+  - ticker: MKTX
+    name: MarketAxess
+    sector_tag: fixed_income_venue
+    peer_group: trading_venue
+    deal_stage: rumor
+    is_private: false
+    static_price: 215.0
+    static_market_cap_b: 8.1
+    static_ev_ebitda: 18.0
+    static_trailing_pe: 30.0
+    static_avg_dollar_volume_30d: 95000000
+  - ticker: BGCP
+    name: BGC Group
+    sector_tag: fx_venue
+    peer_group: trading_venue
+    deal_stage: none
+    is_private: false
+    static_price: 10.5
+    static_market_cap_b: 5.2
+    static_ev_ebitda: 9.0
+    static_trailing_pe: 17.0
+    static_avg_dollar_volume_30d: 28000000
+  - ticker: VIRT
+    name: Virtu Financial
+    sector_tag: fx_venue
+    peer_group: trading_venue
+    deal_stage: none
+    is_private: false
+    static_price: 38.0
+    static_market_cap_b: 6.0
+    static_ev_ebitda: 8.5
+    static_trailing_pe: 13.0
+    static_avg_dollar_volume_30d: 75000000
+
+  # ---- Smaller exchanges ----
+  - ticker: ENX.PA
+    name: Euronext
+    sector_tag: smaller_exchange
+    peer_group: exchange
+    deal_stage: none
+    is_private: false
+    static_price: 110.0
+    static_market_cap_b: 11.7
+    static_ev_ebitda: 13.0
+    static_trailing_pe: 19.0
+    static_avg_dollar_volume_30d: 25000000
+  - ticker: 8697.T
+    name: Japan Exchange Group
+    sector_tag: smaller_exchange
+    peer_group: exchange
+    deal_stage: none
+    is_private: false
+    static_price: 16.5
+    static_market_cap_b: 8.8
+    static_ev_ebitda: 17.0
+    static_trailing_pe: 24.0
+    static_avg_dollar_volume_30d: 30000000
+  - ticker: ASX.AX
+    name: ASX Limited
+    sector_tag: smaller_exchange
+    peer_group: exchange
+    deal_stage: none
+    is_private: false
+    static_price: 43.0
+    static_market_cap_b: 8.3
+    static_ev_ebitda: 18.0
+    static_trailing_pe: 26.0
+    static_avg_dollar_volume_30d: 20000000
+  - ticker: B3SA3.SA
+    name: B3 - Brasil Bolsa Balcao
+    sector_tag: smaller_exchange
+    peer_group: exchange
+    deal_stage: none
+    is_private: false
+    static_price: 2.2
+    static_market_cap_b: 12.3
+    static_ev_ebitda: 11.0
+    static_trailing_pe: 16.0
+    static_avg_dollar_volume_30d: 75000000
+  - ticker: 0388.HK
+    name: Hong Kong Exchanges and Clearing
+    sector_tag: smaller_exchange
+    peer_group: exchange
+    deal_stage: none
+    is_private: false
+    static_price: 36.0
+    static_market_cap_b: 45.0
+    static_ev_ebitda: 22.0
+    static_trailing_pe: 32.0
+    static_avg_dollar_volume_30d: 150000000
+  - ticker: MIAX
+    name: MIAX (Miami International Holdings)
+    sector_tag: smaller_exchange
+    peer_group: exchange
+    deal_stage: rumor
+    is_private: true
+    static_market_cap_b: 1.8
+
+  # ---- Clearing / post-trade ----
+  - ticker: BR
+    name: Broadridge Financial Solutions
+    sector_tag: clearing_post_trade
+    peer_group: post_trade
+    deal_stage: none
+    is_private: false
+    static_price: 245.0
+    static_market_cap_b: 28.7
+    static_ev_ebitda: 18.0
+    static_trailing_pe: 28.0
+    static_avg_dollar_volume_30d: 130000000
+  - ticker: SSNC
+    name: SS&C Technologies
+    sector_tag: clearing_post_trade
+    peer_group: post_trade
+    deal_stage: none
+    is_private: false
+    static_price: 88.0
+    static_market_cap_b: 21.5
+    static_ev_ebitda: 13.0
+    static_trailing_pe: 22.0
+    static_avg_dollar_volume_30d: 90000000
+  - ticker: NDAQ
+    name: Nasdaq Inc (peer reference)
+    sector_tag: clearing_post_trade
+    peer_group: post_trade
+    deal_stage: none
+    is_private: false
+    static_price: 84.0
+    static_market_cap_b: 48.0
+    static_ev_ebitda: 21.0
+    static_trailing_pe: 33.0
+    static_avg_dollar_volume_30d: 200000000
+
+  # ---- Fintech infrastructure ----
+  - ticker: MQ
+    name: Marqeta
+    sector_tag: fintech_infra
+    peer_group: fintech_infra
+    deal_stage: none
+    is_private: false
+    static_price: 4.8
+    static_market_cap_b: 2.4
+    static_ev_ebitda: 25.0
+    static_trailing_pe: null
+    static_avg_dollar_volume_30d: 40000000
+  - ticker: PAYO
+    name: Payoneer
+    sector_tag: fintech_infra
+    peer_group: fintech_infra
+    deal_stage: rumor
+    is_private: false
+    static_price: 9.5
+    static_market_cap_b: 3.4
+    static_ev_ebitda: 14.0
+    static_trailing_pe: 22.0
+    static_avg_dollar_volume_30d: 35000000
+  - ticker: FLYW
+    name: Flywire
+    sector_tag: fintech_infra
+    peer_group: fintech_infra
+    deal_stage: active_review
+    is_private: false
+    static_price: 11.2
+    static_market_cap_b: 1.4
+    static_ev_ebitda: 30.0
+    static_trailing_pe: null
+    static_avg_dollar_volume_30d: 22000000
+  - ticker: TRMD
+    name: Trumid (private placeholder)
+    sector_tag: fixed_income_venue
+    peer_group: trading_venue
+    deal_stage: rumor
+    is_private: true
+    static_market_cap_b: 2.6
+  - ticker: SYMP
+    name: Symphony Communication (private placeholder)
+    sector_tag: fintech_infra
+    peer_group: fintech_infra
+    deal_stage: none
+    is_private: true
+    static_market_cap_b: 1.4
+  - ticker: OPFN
+    name: OpenFin (private placeholder)
+    sector_tag: fintech_infra
+    peer_group: fintech_infra
+    deal_stage: none
+    is_private: true
+    static_market_cap_b: 0.5
