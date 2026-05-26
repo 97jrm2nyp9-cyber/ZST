@@ -179,6 +179,8 @@ canvas { display: block; }
 #weather-badge { position:absolute; top:50px; left:50%; transform:translateX(-50%); font-size:13px; color:rgba(255,255,255,0.7); pointer-events:none; text-shadow:0 1px 6px #000; letter-spacing:1px; transition:opacity 1s; }
 .prayer-bubble { position:absolute; font-size:16px; pointer-events:none; transform:translate(-50%,-100%); white-space:nowrap; text-shadow:0 0 8px rgba(255,220,120,0.9); animation:prayFloat 0.4s ease-out; }
 @keyframes prayFloat { from{opacity:0;transform:translate(-50%,-80%)} to{opacity:1;transform:translate(-50%,-100%)} }
+#resource-panel { position:absolute; left:20px; bottom:180px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.12); border-radius:6px; padding:6px 10px; pointer-events:none; }
+.res-row { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,0.7); font-size:11px; letter-spacing:1px; }
 </style>
 </head>
 <body>
@@ -221,6 +223,11 @@ canvas { display: block; }
   <div id="faith-bar">
     <div id="faith-label">Faith</div>
     <div id="faith-track"><div id="faith-fill"></div></div>
+  </div>
+
+  <div id="resource-panel">
+    <div class="res-row"><span>🪨</span><span id="res-stone">0</span></div>
+    <div class="res-row"><span>🪵</span><span id="res-wood">0</span></div>
   </div>
 
   <div id="civ-panel">
@@ -370,6 +377,29 @@ function initTextures() {
   });
 }
 
+function initBlockMats() {
+  window.BLK = {
+    stone:    new THREE.MeshStandardMaterial({ color:0x8a8070, roughness:0.88, metalness:0.02 }),
+    cobble:   new THREE.MeshStandardMaterial({ color:0x707060, roughness:0.95, metalness:0.0  }),
+    wood:     new THREE.MeshStandardMaterial({ color:0x7a5020, roughness:0.88, metalness:0.0, map: TEX.bark }),
+    plank:    new THREE.MeshStandardMaterial({ color:0xc8922a, roughness:0.82, metalness:0.0  }),
+    brick:    new THREE.MeshStandardMaterial({ color:0xb05030, roughness:0.84, metalness:0.0  }),
+    marble:   new THREE.MeshStandardMaterial({ color:0xe8e0d0, roughness:0.45, metalness:0.04 }),
+    sandstone:new THREE.MeshStandardMaterial({ color:0xd4bc78, roughness:0.78, metalness:0.0  }),
+    obsidian: new THREE.MeshStandardMaterial({ color:0x1a0828, roughness:0.30, metalness:0.35,
+                emissive:new THREE.Color(0x110022), emissiveIntensity:0.5 }),
+    gold:     new THREE.MeshStandardMaterial({ color:0xffd700, roughness:0.20, metalness:0.80,
+                emissive:new THREE.Color(0xaa8800), emissiveIntensity:0.3 }),
+    crystal:  new THREE.MeshStandardMaterial({ color:0x88ccff, roughness:0.05, metalness:0.6,
+                transparent:true, opacity:0.80, emissive:new THREE.Color(0x2244aa), emissiveIntensity:0.6 }),
+    thatch:   new THREE.MeshStandardMaterial({ color:0xc8a030, roughness:0.95, metalness:0.0, map: TEX.thatch }),
+    darkstone:new THREE.MeshStandardMaterial({ color:0x3a3040, roughness:0.80, metalness:0.08 }),
+  };
+  // Set repeat on mapped textures
+  if (window.BLK.wood.map) window.BLK.wood.map.repeat.set(0.5,0.5);
+  if (window.BLK.thatch.map) window.BLK.thatch.map.repeat.set(0.5,0.5);
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 const ISLAND_RADIUS  = 90;
 const TERRAIN_SEGS   = 128;
@@ -416,6 +446,52 @@ let stumps         = [];   // charred stumps awaiting regrowth
 let burningObjects = [];   // currently burning trees
 let scorchDecals   = [];   // ground scorch marks
 let villageLogCount = 0;   // logs deposited by creatures
+
+// ─── Resource counters ───────────────────────────────────────────────────────
+let resStone = 0;
+let resWood  = 0;
+
+// ─── Block build queue ────────────────────────────────────────────────────────
+let _blockQueue = []; // [{x,y,z,mat,sx,sy,sz}]
+let _blockTimer  = 0;
+const BLOCK_INTERVAL = 0.10; // seconds between block placements
+
+function queueBlock(x, y, z, mat, sx=1, sy=1, sz=1) {
+  _blockQueue.push({ x, y, z, mat, sx, sy, sz });
+}
+
+function updateBlockQueue(dt) {
+  if (_blockQueue.length === 0) return;
+  _blockTimer -= dt;
+  if (_blockTimer > 0) return;
+  _blockTimer = BLOCK_INTERVAL;
+
+  const b = _blockQueue.shift();
+  const geo = new THREE.BoxGeometry(b.sx, b.sy, b.sz);
+  const mesh = new THREE.Mesh(geo, b.mat);
+  mesh.position.set(b.x, b.y, b.z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  // Pop-in scale animation
+  mesh.scale.setScalar(0.01);
+  scene.add(mesh);
+  const grow = () => {
+    mesh.scale.multiplyScalar(1.15);
+    if (mesh.scale.x < 1.0) requestAnimationFrame(grow);
+    else mesh.scale.setScalar(1.0);
+  };
+  requestAnimationFrame(grow);
+  // Small placement sound + dust
+  playTone(rand(180,320), 'triangle', 0.06, 0.08);
+  spawnBurst(new THREE.Vector3(b.x, b.y+b.sy*0.5, b.z), 0xccbbaa, 4, 2.5, 0.08, 0.35);
+}
+
+function updateResourceUI() {
+  const s = document.getElementById('res-stone');
+  const w = document.getElementById('res-wood');
+  if (s) s.textContent = resStone;
+  if (w) w.textContent = resWood;
+}
 
 // ─── Civilization & time ──────────────────────────────────────────────────────
 let gameTime         = 0;    // total seconds elapsed
@@ -588,12 +664,12 @@ function buildTerrain() {
       'float fbm(vec2 p){return ns(p)*0.5+ns(p*2.1)*0.25+ns(p*4.4)*0.125+ns(p*9.1)*0.0625;}',
       'void main(){',
       // Biome colours
-      '  vec3 wetSand = vec3(0.68,0.60,0.40);',
-      '  vec3 drySand = vec3(0.88,0.80,0.57);',
-      '  vec3 grassLo = vec3(0.32,0.60,0.19);',
-      '  vec3 grassHi = vec3(0.22,0.46,0.13);',
-      '  vec3 rock    = vec3(0.49,0.46,0.41);',
-      '  vec3 snow    = vec3(0.91,0.93,0.97);',
+      '  vec3 wetSand  = vec3(0.62,0.56,0.38);',
+      '  vec3 drySand  = vec3(0.92,0.83,0.56);',
+      '  vec3 grassLo  = vec3(0.30,0.58,0.18);',
+      '  vec3 grassHi  = vec3(0.18,0.42,0.11);',
+      '  vec3 rock     = vec3(0.52,0.48,0.42);',
+      '  vec3 snow     = vec3(0.94,0.96,1.00);',
       // Slope → rock on steep faces
       '  float slope    = 1.0 - clamp(vNormal.y, 0.0, 1.0);',
       '  float rockBias = smoothstep(0.36, 0.70, slope);',
@@ -632,7 +708,7 @@ function buildTerrain() {
       // Specular — sand catches sun, grass/forest matte
       '  float specAmt = (1.0 - clamp(tGrass + tForest*0.8, 0.0, 1.0)) * 0.08;',
       '  float spec    = pow(max(dot(reflect(-sunDir, n), viewDir), 0.0), 22.0) * specAmt;',
-      '  float light   = 0.20 + 0.80*diff + skyBnc;',
+      '  float light   = 0.22 + 0.78*diff + skyBnc;',
       '  gl_FragColor  = vec4(col * light + vec3(spec), 1.0);',
       '}'
     ].join('\n'),
@@ -698,10 +774,10 @@ function buildWater() {
       'float ns(vec2 p){vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);}',
       'void main(){',
       '  float evil = clamp(-uAlignment, 0.0, 1.0);',
-      '  vec3 deep  = mix(vec3(0.03,0.13,0.42), vec3(0.15,0.02,0.05), evil*0.7);',
-      '  vec3 mid   = mix(vec3(0.07,0.28,0.66), vec3(0.28,0.05,0.09), evil*0.6);',
-      '  vec3 crest = mix(vec3(0.40,0.72,0.96), vec3(0.58,0.17,0.17), evil*0.6);',
-      '  float foam  = smoothstep(0.17, 0.54, vWave);',
+      '  vec3 deep  = mix(vec3(0.02,0.10,0.38), vec3(0.14,0.02,0.05), evil*0.7);',
+      '  vec3 mid   = mix(vec3(0.05,0.22,0.62), vec3(0.26,0.04,0.08), evil*0.6);',
+      '  vec3 crest = mix(vec3(0.44,0.76,0.98), vec3(0.60,0.18,0.18), evil*0.6);',
+      '  float foam  = smoothstep(0.12, 0.48, vWave);',
       '  vec3 col    = mix(deep, mid, clamp(vWave*1.9+0.45, 0.0, 1.0));',
       '  col = mix(col, crest, foam * 0.65);',
       // Animated band detail
@@ -1641,6 +1717,7 @@ class CreatureAgent {
           this._carryLog.userData.carried = false;
           this._carryLog = null;
           villageLogCount++;
+          resWood++; updateResourceUI();
           this.gainExperience(12);
           if (villageLogCount >= 4) { villageLogCount = 0; buildNewVillageHut(); }
         }
@@ -2264,12 +2341,12 @@ function buildVillageBuildings() {
 }
 
 function buildHut(x, z, h) {
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0xbcb4a4, map: TEX.stone, roughness: 0.82, metalness: 0 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xc8c0ae, map: TEX.stone, roughness: 0.78, metalness: 0.01 });
   const wall = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.2, 2.2, 8), wallMat);
   wall.position.set(x, h + 1.1, z);
   wall.castShadow = true; wall.receiveShadow = true;
   scene.add(wall);
-  const roofMat = new THREE.MeshStandardMaterial({ color: 0xd4a838, map: TEX.thatch, roughness: 0.92, metalness: 0 });
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0xdcb040, map: TEX.thatch, roughness: 0.90, metalness: 0 });
   const roof = new THREE.Mesh(new THREE.ConeGeometry(2.85, 2.4, 8), roofMat);
   roof.position.set(x, h + 3.4, z);
   roof.rotation.y = Math.random() * 0.4;
@@ -2652,6 +2729,10 @@ function updateThrownObjects(dt) {
         obj.userData.vel = new THREE.Vector3();
       }
       if (obj.userData.type === 'villager') { spawnBurst(obj.position, 0xaabbcc, 5, 3, 0.1, 0.3); }
+      if (obj.userData.type === 'rock' && obj.position.distanceTo(VILLAGE_POS) < 22) {
+        resStone = Math.min(resStone+1, 999);
+        updateResourceUI();
+      }
     }
 
     // Villager thrown off island → alignment penalty
@@ -2910,12 +2991,12 @@ function initScene() {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.92;
+  renderer.toneMappingExposure = 1.05;
   renderer.physicallyCorrectLights = true;
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0.42, 0.62, 0.88);
-  scene.fog = new THREE.FogExp2(0x9fbfe0, 0.0026);
+  scene.fog = new THREE.FogExp2(0xb8d4f0, 0.0016);
 
   camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.3, 800);
   camTarget = new THREE.Vector3(0, 0, 0);
@@ -2968,7 +3049,7 @@ function initScene() {
     side: THREE.BackSide,
     uniforms: {
       uTop:    { value: new THREE.Color(0.12,0.28,0.72) },
-      uMid:    { value: new THREE.Color(0.46,0.68,0.96) },
+      uMid:    { value: new THREE.Color(0.52,0.72,0.98) },
       uBot:    { value: new THREE.Color(0.72,0.86,0.98) },
       uSunDir: { value: new THREE.Vector3(0.55, 0.85, 0.3).normalize() },
       uAlign:  { value: 0.0 },
@@ -2984,7 +3065,7 @@ function initScene() {
       '  vec3  col = mix(uBot, mix(uMid, uTop, ty*ty), ty);',
       // Atmospheric haze thickens near horizon
       '  float haze = pow(1.0 - ty, 4.0) * 0.22;',
-      '  col = mix(col, vec3(0.75,0.88,1.0), haze);',
+      '  col = mix(col, vec3(0.78,0.90,1.0), haze);',
       // Sun
       '  vec3  dir  = normalize(vPos);',
       '  float sun  = max(0.0, dot(dir, normalize(uSunDir)));',
@@ -3004,10 +3085,10 @@ function initScene() {
   scene.add(window._skyMesh);
 
   // Lights
-  const sun = new THREE.DirectionalLight(0xfff2d0, 3.2);
+  const sun = new THREE.DirectionalLight(0xfff5e0, 3.5);
   sun.position.set(80, 130, 60);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(4096, 4096);
   sun.shadow.camera.near   = 2;
   sun.shadow.camera.far    = 420;
   sun.shadow.camera.left   = sun.shadow.camera.bottom = -135;
@@ -3020,12 +3101,12 @@ function initScene() {
   scene.add(ambient);
   window._ambient = ambient;
 
-  const hemi = new THREE.HemisphereLight(0x8abeee, 0x3a6822, 1.1);
+  const hemi = new THREE.HemisphereLight(0x8ec8f8, 0x4a7830, 1.3);
   scene.add(hemi);
   window._hemi = hemi;
 
   // Soft fill from opposite direction (sky bounce / ambient occlusion simulation)
-  const fill = new THREE.DirectionalLight(0x7ab0e8, 0.6);
+  const fill = new THREE.DirectionalLight(0x8ac8f8, 0.85);
   fill.position.set(-60, 40, -80);
   scene.add(fill);
 
@@ -3051,9 +3132,9 @@ function initScene() {
     }
     const bloom = new THREE.UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      0.35,  // strength — subtle, only bright emissives glow
-      0.4,   // radius
-      0.72   // threshold — only very bright emissives (fire, orb) pass
+      0.45,  // strength
+      0.5,   // radius
+      0.62   // threshold — catch more emissive surfaces
     );
     composer.addPass(bloom);
     window._bloomPass = bloom;
@@ -3207,298 +3288,241 @@ function considerBuilding() {
   }
 }
 
-function scheduleConstruction(type, x, z, h) {
-  showMiracleFlash('Building…', '#88aaff');
-  spawnBurst(v3(x, h + 1, z), 0x88aaff, 16, 4, 0.18, 1.5);
-  const delay = rand(3500, 8000);
-  setTimeout(() => {
-    const buildFn = STRUCTURES[type];
-    if (!buildFn) return;
-    const meshes = buildFn(x, z, h);
-    if (meshes && meshes.length > 0) {
-      growStructure(meshes);
-      setTimeout(() => {
-        spawnBurst(v3(x, h + 5, z), 0xffcc44, 35, 9, 0.26, 2.5);
-        showMiracleFlash(`${type} built!`, '#ffcc44');
-        changeAlignment(0.03);
-        creatures.forEach(c => c.gainExperience(18));
-      }, meshes.length * 200 + 500);
+// ─── Voxel structure definitions ──────────────────────────────────────────────
+function _voxStoneCircle(x, z, h) {
+  const blks = [], n=12, r=rand(6,9);
+  for (let i=0;i<n;i++) {
+    const a=(i/n)*Math.PI*2, cx=x+Math.cos(a)*r, cz=z+Math.sin(a)*r;
+    const ch=getTerrainHeight(cx,cz);
+    const ht=Math.floor(rand(2,4));
+    for (let y=0;y<ht;y++) blks.push([cx,ch+y*1.1+0.5,cz,'cobble',rand(0.8,1.1),1.1,rand(0.7,1.0)]);
+    // Lintels every other stone
+    if (i%2===0) {
+      const la=(i+0.5)/n*Math.PI*2;
+      const lx=x+Math.cos(la)*r, lz=z+Math.sin(la)*r;
+      blks.push([lx,ch+ht*1.1+0.3,lz,'stone',2.5,0.45,0.7]);
     }
-  }, delay);
+  }
+  return blks;
 }
 
-function growStructure(meshes) {
-  meshes.forEach((m, i) => {
-    m.visible = false;
-    setTimeout(() => {
-      m.visible = true;
-      m.scale.set(0.01, 0.01, 0.01);
-      const grow = () => {
-        m.scale.multiplyScalar(1.07);
-        if (m.scale.x < 1.0) requestAnimationFrame(grow);
-        else m.scale.setScalar(1.0);
-      };
-      requestAnimationFrame(grow);
-    }, i * 200);
+function _voxTotemPole(x, z, h) {
+  const blks=[];
+  const H=12;
+  for(let y=0;y<H;y++) blks.push([x,h+y*0.95+0.5,z,'wood',1.0,0.95,1.0]);
+  [1.8,4.2,7.0,9.8].forEach((fy,i)=>{
+    blks.push([x,h+fy+0.5,z+0.65,'plank',1.8,1.4,0.6]);
+    if(i%2===0) blks.push([x,h+fy+0.9,z,'plank',3.2,0.5,0.5]);
   });
+  return blks;
 }
 
-// ─── Structure building functions ─────────────────────────────────────────────
-function _addMesh(geo, mat, px, py, pz, rx, ry, rz, sx, sy, sz) {
-  const m = new THREE.Mesh(geo, mat);
-  m.position.set(px, py, pz);
-  if (rx !== undefined) m.rotation.set(rx, ry, rz);
-  if (sx !== undefined) m.scale.set(sx, sy, sz);
-  m.castShadow = true; m.receiveShadow = true;
-  scene.add(m);
-  return m;
-}
-
-function buildStoneCircle(x, z, h) {
-  const mat = new THREE.MeshStandardMaterial({ color: 0x888070, roughness: 0.88, metalness: 0.02 });
-  const meshes = [];
-  const n = 10, r = rand(5, 8);
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    const sx = x + Math.cos(a) * r, sz = z + Math.sin(a) * r;
-    const sh = getTerrainHeight(sx, sz);
-    const ht = rand(1.4, 2.6);
-    meshes.push(_addMesh(new THREE.BoxGeometry(rand(0.55,0.85), ht, rand(0.4,0.7)), mat,
-      sx, sh + ht / 2, sz, 0, Math.random() * 0.25, 0));
+function _voxPalisade(x, z, h) {
+  const blks=[], len=Math.floor(rand(10,18)), posts=Math.floor(len/1.5);
+  for(let i=0;i<posts;i++){
+    const px=x+(i-posts/2)*1.5, ph=getTerrainHeight(px,z);
+    const ht=Math.floor(rand(3,5));
+    for(let y=0;y<ht;y++) blks.push([px,ph+y*0.95+0.5,z,'wood',0.7,0.95,0.7]);
+    // Pointed top
+    blks.push([px,ph+ht*0.95+0.55,z,'wood',0.45,0.7,0.45]);
   }
-  // Lintels
-  for (let i = 0; i < n; i += 2) {
-    const a = ((i + 0.5) / n) * Math.PI * 2;
-    const mx = x + Math.cos(a) * r, mz = z + Math.sin(a) * r;
-    const mh = getTerrainHeight(mx, mz);
-    meshes.push(_addMesh(new THREE.BoxGeometry(2.4, 0.4, 0.6), mat,
-      mx, mh + 2.6, mz, 0, a + Math.PI / 2, 0));
+  return blks;
+}
+
+function _voxWell(x, z, h) {
+  const blks=[];
+  for(let i=0;i<8;i++){
+    const a=i/8*Math.PI*2, wx=x+Math.cos(a)*1.3, wz=z+Math.sin(a)*1.3;
+    blks.push([wx,h+0.55,wz,'stone',0.7,1.1,0.7]);
+    blks.push([wx,h+1.65,wz,'stone',0.7,1.1,0.7]);
   }
-  return meshes;
+  blks.push([x,h+0.1,z,'cobble',2.8,0.2,2.8]); // base
+  blks.push([x-1.2,h+2.7,z,'wood',0.2,2.8,0.2]);
+  blks.push([x+1.2,h+2.7,z,'wood',0.2,2.8,0.2]);
+  blks.push([x,h+3.5,z,'wood',2.8,0.2,0.2]);
+  return blks;
 }
 
-function buildTotemPole(x, z, h) {
-  const mat  = new THREE.MeshStandardMaterial({ color: 0x7a5020, roughness: 0.88, metalness: 0 });
-  const face = new THREE.MeshStandardMaterial({ color: 0xd08040, roughness: 0.80, metalness: 0 });
-  const meshes = [];
-  const totalH = 10;
-  meshes.push(_addMesh(new THREE.CylinderGeometry(0.45, 0.55, totalH, 8), mat, x, h + totalH/2, z));
-  [1.5, 4.0, 6.5, 8.8].forEach((fy, i) => {
-    meshes.push(_addMesh(new THREE.BoxGeometry(1.5, 1.2, 0.6), face, x, h + fy, z + 0.6,
-      0, 0, 0));
-    // Wing spans
-    if (i % 2 === 0) {
-      meshes.push(_addMesh(new THREE.BoxGeometry(2.2, 0.5, 0.5), mat, x, h + fy + 0.5, z, 0, 0, 0));
-    }
-  });
-  return meshes;
+function _voxFarm(x, z, h) {
+  const blks=[];
+  // Tilled soil rows (flat brown blocks)
+  for(let row=-3;row<=3;row++) for(let col=-4;col<=4;col++)
+    blks.push([x+col*1.1, h+0.1, z+row*1.2, 'sandstone', 1.0, 0.2, 1.0]);
+  // Crop rows
+  for(let row=-3;row<=3;row++) for(let col=-4;col<=4;col+=2)
+    blks.push([x+col*1.1+0.5, h+0.55, z+row*1.2, 'plank', 0.25, rand(0.5,1.0), 0.25]);
+  return blks;
 }
 
-function buildPalisade(x, z, h) {
-  const mat = new THREE.MeshStandardMaterial({ color: 0x6b4820, roughness: 0.90, metalness: 0 });
-  const meshes = [];
-  const len = rand(12, 20), posts = Math.floor(len / 1.4);
-  for (let i = 0; i < posts; i++) {
-    const px = x + (i - posts / 2) * 1.4;
-    const ph = getTerrainHeight(px, z);
-    const ht = rand(2.2, 3.0);
-    meshes.push(_addMesh(new THREE.CylinderGeometry(0.22, 0.28, ht, 6), mat, px, ph + ht/2, z));
+function _voxGranary(x, z, h) {
+  const blks=[], W=4, D=3, Hb=5;
+  for(let y=0;y<Hb;y++) for(const [dx,dz] of [[-W,D],[W,D],[-W,-D],[W,-D],[-W,0],[W,0],[0,D],[0,-D]])
+    blks.push([x+dx*0.5,h+y+0.5,z+dz*0.5,'brick',1.0,1.0,1.0]);
+  // Roof (inverted pyramid of thatch)
+  for(let r=0;r<3;r++) for(let col=-3+r;col<=3-r;col++) for(const dz2 of [-2+r,2-r])
+    blks.push([x+col,h+Hb+r+0.5,z+dz2,'thatch',1.0,1.0,1.0]);
+  return blks;
+}
+
+function _voxPyramid(x, z, h) {
+  const blks=[], levels=7, bs=2.2;
+  const mat = alignment > 0.2 ? 'sandstone' : 'cobble';
+  for(let L=0;L<levels;L++){
+    const size=levels-L;
+    for(let dx=-size;dx<=size;dx++) for(let dz=-size;dz<=size;dz++)
+      blks.push([x+dx*bs*0.8,h+L*bs*0.9+bs*0.45,z+dz*bs*0.8,mat,bs*0.8,bs*0.9,bs*0.8]);
   }
-  return meshes;
+  blks.push([x,h+levels*bs*0.9+0.6,z,'gold',1.8,1.8,1.8]);
+  return blks;
 }
 
-function buildWellStructure(x, z, h) {
-  const stone = new THREE.MeshStandardMaterial({ color: 0x888070, roughness: 0.85, metalness: 0 });
-  const wood  = new THREE.MeshStandardMaterial({ color: 0x5c3317, roughness: 0.90, metalness: 0 });
-  const water = new THREE.MeshStandardMaterial({ color: 0x2255aa, roughness: 0.05, metalness: 0.1 });
-  const meshes = [];
-  meshes.push(_addMesh(new THREE.CylinderGeometry(1.25, 1.35, 1.4, 12), stone, x, h + 0.7, z));
-  meshes.push(_addMesh(new THREE.CylinderGeometry(1.10, 1.10, 0.1, 12), water, x, h + 1.4, z));
-  meshes.push(_addMesh(new THREE.CylinderGeometry(0.08, 0.08, 2.8, 5), wood, x - 1.1, h + 2.2, z));
-  meshes.push(_addMesh(new THREE.CylinderGeometry(0.08, 0.08, 2.8, 5), wood, x + 1.1, h + 2.2, z));
-  meshes.push(_addMesh(new THREE.CylinderGeometry(0.07, 0.07, 2.6, 5), wood, x, h + 2.8, z, 0, 0, Math.PI / 2));
-  return meshes;
-}
-
-function buildFarmPlot(x, z, h) {
-  const soil = new THREE.MeshStandardMaterial({ color: 0x5c3a1a, roughness: 0.97, metalness: 0 });
-  const crop = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.29, 0.72, 0.33), roughness: 0.92, metalness: 0 });
-  const meshes = [];
-  meshes.push(_addMesh(new THREE.BoxGeometry(10, 0.18, 8), soil, x, h + 0.09, z));
-  for (let row = -2.8; row <= 2.8; row += 1.2) {
-    for (let col = -4.2; col <= 4.2; col += 1.1) {
-      meshes.push(_addMesh(new THREE.ConeGeometry(0.14, rand(0.45, 0.85), 4), crop,
-        x + col + rand(-0.1, 0.1), h + 0.45, z + row + rand(-0.1, 0.1)));
-    }
+function _voxObelisk(x, z, h) {
+  const blks=[];
+  blks.push([x,h+0.6,z,'marble',2.4,1.2,2.4]);
+  for(let y=1;y<16;y++){
+    const taper=lerp(0.85,0.35,y/15);
+    blks.push([x,h+y*1.1+0.55,z,'marble',taper,1.1,taper]);
   }
-  return meshes;
+  blks.push([x,h+17.5,z,'gold',0.7,1.8,0.7]);
+  return blks;
 }
 
-function buildGranaryStructure(x, z, h) {
-  const wall = new THREE.MeshStandardMaterial({ color: 0xc8a060, roughness: 0.82, metalness: 0 });
-  const roof = new THREE.MeshStandardMaterial({ color: 0x884422, roughness: 0.88, metalness: 0 });
-  const meshes = [];
-  meshes.push(_addMesh(new THREE.BoxGeometry(7, 4.5, 5), wall, x, h + 2.25, z));
-  meshes.push(_addMesh(new THREE.ConeGeometry(5.2, 3.2, 4), roof, x, h + 6.0, z, 0, Math.PI/4, 0));
-  // Door
-  meshes.push(_addMesh(new THREE.BoxGeometry(1.2, 2.0, 0.15),
-    new THREE.MeshStandardMaterial({ color: 0x4a2a0a, roughness: 0.92, metalness: 0 }),
-    x, h + 1.0, z - 2.55));
-  return meshes;
+function _voxStoneHead(x, z, h) {
+  const blks=[];
+  // Base/neck
+  for(let y=0;y<4;y++) blks.push([x,h+y*1.1+0.55,z,'stone',2.5-y*0.2,1.1,2.5-y*0.2]);
+  // Head
+  for(let dy=-1;dy<=1;dy++) for(let dx=-2;dx<=2;dx++) for(let dz=-2;dz<=2;dz++)
+    if(dx*dx+dy*dy+dz*dz<=7) blks.push([x+dx*0.9,h+4.5+dy*0.9,z+dz*0.9,'stone',0.9,0.9,0.9]);
+  // Eyes (emissive)
+  blks.push([x-0.85,h+4.9,z+1.8,'crystal',0.55,0.55,0.4]);
+  blks.push([x+0.85,h+4.9,z+1.8,'crystal',0.55,0.55,0.4]);
+  return blks;
 }
 
-function buildPyramid(x, z, h) {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xd0b870, roughness: 0.72, metalness: 0.04 });
-  const cap = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.15, metalness: 0.85,
-    emissive: 0xaa8800, emissiveIntensity: 0.45 });
-  const meshes = [];
-  const levels = 6, blockH = 2.6;
-  for (let i = 0; i < levels; i++) {
-    const s = (levels - i) / levels * (levels * 2.8);
-    meshes.push(_addMesh(new THREE.BoxGeometry(s, blockH, s), mat, x, h + i * blockH + blockH/2, z));
-  }
-  meshes.push(_addMesh(new THREE.ConeGeometry(1.6, 2.5, 4), cap, x, h + levels * blockH + 1.25, z, 0, Math.PI/4, 0));
-  // Point light at capstone for glow
-  const pl = new THREE.PointLight(0xffcc44, 2.5, 35);
-  pl.position.set(x, h + levels * blockH + 2.8, z);
-  scene.add(pl);
-  return meshes;
-}
-
-function buildObelisk(x, z, h) {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xd8c8a8, roughness: 0.62, metalness: 0.08 });
-  const cap = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.1, metalness: 0.9,
-    emissive: 0xffaa00, emissiveIntensity: 0.55 });
-  const meshes = [];
-  meshes.push(_addMesh(new THREE.BoxGeometry(2.2, 0.9, 2.2), mat, x, h + 0.45, z));
-  meshes.push(_addMesh(new THREE.CylinderGeometry(0.45, 0.72, 14, 4), mat, x, h + 7.9, z, 0, Math.PI/4, 0));
-  meshes.push(_addMesh(new THREE.ConeGeometry(0.5, 1.8, 4), cap, x, h + 15.7, z, 0, Math.PI/4, 0));
-  return meshes;
-}
-
-function buildStoneHead(x, z, h) {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xb8a888, roughness: 0.78, metalness: 0 });
-  const eye = new THREE.MeshStandardMaterial({ color: 0x222244, roughness: 0.4, metalness: 0.1,
-    emissive: 0x111133, emissiveIntensity: 0.6 });
-  const meshes = [];
-  meshes.push(_addMesh(new THREE.CylinderGeometry(1.4, 1.8, 3.5, 8), mat, x, h + 1.75, z)); // neck/base
-  meshes.push(_addMesh(new THREE.SphereGeometry(2.5, 12, 10), mat, x, h + 5.8, z));           // head
-  meshes.push(_addMesh(new THREE.BoxGeometry(3.2, 1.0, 0.5), mat, x, h + 5.2, z + 2.3));     // jaw
-  meshes.push(_addMesh(new THREE.SphereGeometry(0.5, 8, 8), eye, x - 0.9, h + 6.3, z + 2.0)); // L eye
-  meshes.push(_addMesh(new THREE.SphereGeometry(0.5, 8, 8), eye, x + 0.9, h + 6.3, z + 2.0)); // R eye
-  return meshes;
-}
-
-function buildTemple(x, z, h) {
-  const stone = new THREE.MeshStandardMaterial({ color: 0xe8e0ce, roughness: 0.65, metalness: 0 });
-  const gold  = new THREE.MeshStandardMaterial({ color: 0xf0d860, roughness: 0.45, metalness: 0.3 });
-  const meshes = [];
+function _voxTemple(x, z, h) {
+  const blks=[];
   // Steps
-  for (let s = 0; s < 3; s++) {
-    meshes.push(_addMesh(new THREE.BoxGeometry(15-s, 0.5, 11-s*0.5), stone, x, h + s*0.5+0.25, z));
-  }
+  for(let s=0;s<3;s++) blks.push([x,h+s*0.6+0.3,z,'marble',14-s*1.5,0.6,10-s]);
   // Platform
-  meshes.push(_addMesh(new THREE.BoxGeometry(13, 1.2, 9.5), stone, x, h + 2.1, z));
-  // Columns (2 rows × 5)
-  for (let col = 0; col < 5; col++) {
-    const cx = x - 5 + col * 2.5;
-    [-3.8, 3.8].forEach(cz => {
-      meshes.push(_addMesh(new THREE.CylinderGeometry(0.36, 0.42, 7, 8), stone, cx, h + 6.2, z + cz));
-    });
+  blks.push([x,h+2.2,z,'marble',12,1.2,8.5]);
+  // Columns 2×5
+  for(let col=0;col<5;col++){
+    const cx=x-5+col*2.5;
+    for(const cz of [z-3.5,z+3.5]) for(let y=0;y<8;y++)
+      blks.push([cx,h+3.0+y,cz,'marble',0.75,1.0,0.75]);
   }
   // Entablature
-  meshes.push(_addMesh(new THREE.BoxGeometry(13, 0.9, 9.5), stone, x, h + 10.1, z));
+  blks.push([x,h+11.0,z,'marble',12,0.9,8.5]);
   // Pediment
-  meshes.push(_addMesh(new THREE.ConeGeometry(8, 3.8, 4), gold, x, h + 12.9, z, 0, Math.PI/4, 0));
-  // Glow light
-  const pl = new THREE.PointLight(0xfff0cc, 1.8, 30);
-  pl.position.set(x, h + 8, z);
-  scene.add(pl);
-  return meshes;
+  for(let r=0;r<3;r++) blks.push([x,h+12.0+r*0.7,z,'gold',lerp(11,2,r/2),0.7,lerp(8,1.5,r/2)]);
+  return blks;
 }
 
-function buildHandMonument(x, z, h) {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xc8c0b0, roughness: 0.70, metalness: 0.05 });
-  const meshes = [];
-  meshes.push(_addMesh(new THREE.CylinderGeometry(1.3, 1.8, 12, 8), mat, x, h + 6, z));
-  meshes.push(_addMesh(new THREE.BoxGeometry(5, 1.4, 6), mat, x, h + 13, z));
-  [[-1.4, 0], [-0.47, 0], [0.47, 0], [1.4, 0]].forEach(([fx]) => {
-    const len = rand(2.2, 3.8);
-    meshes.push(_addMesh(new THREE.CylinderGeometry(0.26, 0.34, len, 6), mat, x+fx, h+13.5+len/2, z-2.2));
+function _voxHandMonument(x, z, h) {
+  const blks=[];
+  // Pillar
+  for(let y=0;y<14;y++) blks.push([x,h+y+0.5,z,'marble',lerp(2.2,1.4,y/13),1.0,lerp(2.2,1.4,y/13)]);
+  // Palm
+  blks.push([x,h+14.5,z,'marble',5.5,1.4,5.0]);
+  // Fingers
+  [[-1.6,3.0],[-0.55,3.6],[0.55,3.6],[1.6,3.0]].forEach(([fx,fl])=>{
+    for(let fy=0;fy<Math.floor(fl);fy++)
+      blks.push([x+fx,h+14.5+fy+1.0,z-2.0,'marble',0.6,1.0,0.6]);
   });
-  meshes.push(_addMesh(new THREE.CylinderGeometry(0.30, 0.38, 2.4, 6), mat, x+2.8, h+13.5, z+0.6, 0, 0, -0.6));
-  // Emissive eye/gem in palm
-  const gem = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 10),
-    new THREE.MeshStandardMaterial({ color: 0xaaddff, emissive: 0x44aaff, emissiveIntensity: 2.5, roughness: 0.05, metalness: 0.4 }));
-  gem.position.set(x, h + 13.2, z + 2.8);
-  scene.add(gem); meshes.push(gem);
-  const pl = new THREE.PointLight(0x44aaff, 3.0, 40);
-  pl.position.set(x, h + 14, z + 3);
-  scene.add(pl);
-  return meshes;
+  // Thumb
+  for(let ty=0;ty<3;ty++) blks.push([x+3.0,h+14.5+ty*0.85,z+0.8,'marble',0.6,0.85,0.6]);
+  // Gem in palm
+  blks.push([x,h+15.0,z+1.8,'crystal',1.0,1.0,1.0]);
+  return blks;
 }
 
-function buildObservatory(x, z, h) {
-  const stone = new THREE.MeshStandardMaterial({ color: 0xe0d8c8, roughness: 0.65, metalness: 0.05 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x88b8d8, roughness: 0.1, metalness: 0.3,
-    transparent: true, opacity: 0.80, emissive: 0x224466, emissiveIntensity: 0.4 });
-  const meshes = [];
-  meshes.push(_addMesh(new THREE.CylinderGeometry(5.5, 6, 4.5, 14), stone, x, h + 2.25, z));
-  meshes.push(_addMesh(new THREE.SphereGeometry(5.5, 16, 8, 0, Math.PI*2, 0, Math.PI/2), glass, x, h + 4.5, z));
+function _voxObservatory(x, z, h) {
+  const blks=[];
+  // Cylindrical base (approximate with blocks)
+  for(let i=0;i<10;i++){
+    const a=i/10*Math.PI*2, bx=x+Math.cos(a)*5, bz=z+Math.sin(a)*5;
+    for(let y=0;y<5;y++) blks.push([bx,h+y*1.0+0.5,bz,'marble',1.2,1.0,1.2]);
+  }
+  // Glass dome sections
+  for(let i=0;i<8;i++){
+    const a=i/8*Math.PI*2;
+    for(let tier=0;tier<4;tier++){
+      const r=Math.cos(tier/4*Math.PI*0.5)*5;
+      blks.push([x+Math.cos(a)*r,h+5+tier*1.4+0.7,z+Math.sin(a)*r,'crystal',1.2,1.4,1.2]);
+    }
+  }
   // Telescope
-  meshes.push(_addMesh(new THREE.CylinderGeometry(0.28, 0.48, 7, 8), stone, x + 1.5, h + 9, z, 0, 0, -0.35));
-  const pl = new THREE.PointLight(0x8899ff, 2.0, 35);
-  pl.position.set(x, h + 7, z);
-  scene.add(pl);
-  return meshes;
+  for(let ty=0;ty<5;ty++) blks.push([x+1.5+ty*0.3,h+8+ty*0.8,z,'marble',0.6,0.8,0.6]);
+  return blks;
 }
 
-function buildGrandTower(x, z, h) {
-  const stone = new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.70, metalness: 0.03 });
-  const dark  = new THREE.MeshStandardMaterial({ color: 0x554433, roughness: 0.85, metalness: 0 });
-  const meshes = [];
-  // Tower shaft with slight taper
-  for (let i = 0; i < 7; i++) {
-    const w = lerp(5.5, 4.0, i / 7);
-    meshes.push(_addMesh(new THREE.BoxGeometry(w, 4, w), stone, x, h + i * 4 + 2, z));
+function _voxGrandTower(x, z, h) {
+  const blks=[];
+  const matKey = civilizationEra>=5 ? 'darkstone' : 'cobble';
+  for(let y=0;y<28;y++){
+    const t=lerp(1.0,0.55,y/27);
+    const w=Math.round(t*2.5);
+    for(let dx=-w;dx<=w;dx++) for(let dz=-w;dz<=w;dz++){
+      if(Math.abs(dx)===w||Math.abs(dz)===w) // hollow walls
+        blks.push([x+dx,h+y+0.5,z+dz,matKey,1.0,1.0,1.0]);
+    }
+    // Windows every 4 floors
+    if(y%4===2) blks.push([x,h+y+0.5,z+w+0.01,'crystal',1.0,1.5,0.3]);
   }
-  // Battlements at top
-  const topH = h + 7 * 4;
-  for (let b = 0; b < 8; b++) {
-    const ba = (b / 8) * Math.PI * 2;
-    const br = 2.2;
-    meshes.push(_addMesh(new THREE.BoxGeometry(0.7, 1.2, 0.7), dark,
-      x + Math.cos(ba) * br, topH + 0.6, z + Math.sin(ba) * br));
+  // Battlements
+  for(let i=0;i<8;i++){
+    const a=i/8*Math.PI*2, br=2.2;
+    blks.push([x+Math.cos(a)*br,h+28.6,z+Math.sin(a)*br,'cobble',0.8,1.4,0.8]);
   }
-  // Pointed roof
-  meshes.push(_addMesh(new THREE.ConeGeometry(3.2, 5, 4), dark, x, topH + 4.5, z, 0, Math.PI/4, 0));
-  // Beacon light
-  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8),
-    new THREE.MeshStandardMaterial({ color: 0xff8800, emissive: 0xff5500, emissiveIntensity: 3.0 }));
-  beacon.position.set(x, topH + 7.5, z);
-  scene.add(beacon); meshes.push(beacon);
-  const pl = new THREE.PointLight(0xff6600, 4.0, 60);
-  pl.position.set(x, topH + 8, z);
-  scene.add(pl);
-  return meshes;
+  // Beacon
+  blks.push([x,h+30.5,z,'gold',1.2,1.2,1.2]);
+  blks.push([x,h+31.8,z,'crystal',0.7,0.7,0.7]);
+  return blks;
 }
 
 // Dispatch table
 const STRUCTURES = {
-  stoneCircle:  buildStoneCircle,
-  totemPole:    buildTotemPole,
-  palisade:     buildPalisade,
-  well:         buildWellStructure,
-  farm:         buildFarmPlot,
-  granary:      buildGranaryStructure,
-  pyramid:      buildPyramid,
-  obelisk:      buildObelisk,
-  stoneHead:    buildStoneHead,
-  temple:       buildTemple,
-  handMonument: buildHandMonument,
-  observatory:  buildObservatory,
-  grandTower:   buildGrandTower,
+  stoneCircle:  _voxStoneCircle,
+  totemPole:    _voxTotemPole,
+  palisade:     _voxPalisade,
+  well:         _voxWell,
+  farm:         _voxFarm,
+  granary:      _voxGranary,
+  pyramid:      _voxPyramid,
+  obelisk:      _voxObelisk,
+  stoneHead:    _voxStoneHead,
+  temple:       _voxTemple,
+  handMonument: _voxHandMonument,
+  observatory:  _voxObservatory,
+  grandTower:   _voxGrandTower,
 };
+
+function scheduleConstruction(type, x, z, h) {
+  showMiracleFlash('Building…', '#88aaff');
+  spawnBurst(v3(x,h+1,z), 0x88aaff, 14, 4, 0.18, 1.5);
+  const delay = rand(2000, 5500);
+  setTimeout(()=>{
+    const buildFn = STRUCTURES[type];
+    if (!buildFn) return;
+    const voxels = buildFn(x, z, h);
+    if (!voxels || voxels.length===0) return;
+    // Sort bottom-to-top so construction goes up
+    voxels.sort((a,b)=>a[1]-b[1]);
+    // Queue all blocks
+    voxels.forEach(([bx,by,bz,matKey,sx=1,sy=1,sz=1])=>{
+      queueBlock(bx, by, bz, window.BLK[matKey] || window.BLK.stone, sx, sy, sz);
+    });
+    // Celebration when last block would be placed
+    const celebDelay = voxels.length * BLOCK_INTERVAL * 1000 + 600;
+    setTimeout(()=>{
+      spawnBurst(v3(x,h+5,z), 0xffcc44, 38, 9, 0.26, 2.5);
+      showMiracleFlash(`${type} complete!`, '#ffcc44');
+      changeAlignment(0.03);
+      creatures.forEach(c=>c.gainExperience(18));
+    }, celebDelay);
+  }, delay);
+}
 
 // ─── Rival God ────────────────────────────────────────────────────────────────
 class RivalGod {
@@ -3714,6 +3738,7 @@ function gameLoop() {
   // Day/night + civilization advancement
   updateDayNight(dt);
   updateCivilization(dt);
+  updateBlockQueue(dt);
 
   // Totem orb pulse
   if (window._totemOrb)   window._totemOrb.rotation.y = elapsed * 0.8;
@@ -3785,6 +3810,7 @@ function gameLoop() {
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 function init() {
   initTextures();
+  initBlockMats();
   initScene();
   buildTerrain();
   buildWater();
