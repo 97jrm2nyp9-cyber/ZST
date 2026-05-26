@@ -176,6 +176,9 @@ canvas { display: block; }
 }
 #civ-era  { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; color: #ffdd88; }
 #civ-time { font-size: 10px; letter-spacing: 1px; color: rgba(255,255,255,0.55); margin-top: 2px; }
+#weather-badge { position:absolute; top:50px; left:50%; transform:translateX(-50%); font-size:13px; color:rgba(255,255,255,0.7); pointer-events:none; text-shadow:0 1px 6px #000; letter-spacing:1px; transition:opacity 1s; }
+.prayer-bubble { position:absolute; font-size:16px; pointer-events:none; transform:translate(-50%,-100%); white-space:nowrap; text-shadow:0 0 8px rgba(255,220,120,0.9); animation:prayFloat 0.4s ease-out; }
+@keyframes prayFloat { from{opacity:0;transform:translate(-50%,-80%)} to{opacity:1;transform:translate(-50%,-100%)} }
 </style>
 </head>
 <body>
@@ -224,6 +227,8 @@ canvas { display: block; }
     <div id="civ-era">Primitive</div>
     <div id="civ-time">Day 1 · Dawn</div>
   </div>
+
+  <div id="weather-badge"></div>
 
   <!-- Touch miracle buttons -->
   <div id="miracle-grid">
@@ -437,6 +442,25 @@ let gestureObjects = [];
 
 // Miracle cast count for creature learning
 let miracleCastCount = { fireball: 0, food: 0, heal: 0, wood: 0 };
+
+// ─── Weather globals ─────────────────────────────────────────────────────────
+let _weatherType = 'clear'; // 'clear'|'rain'|'storm'|'drought'
+let _weatherIntensity = 0;
+let _weatherTimer = 0;
+let _weatherNextChange = rand(80, 160);
+let _lightningTimer = 0;
+
+// ─── Rival God globals ────────────────────────────────────────────────────────
+let rivalGod = null;
+const RIVAL_POS = new THREE.Vector3(-32, 0, -28);
+
+// ─── Combo globals ────────────────────────────────────────────────────────────
+let _lastMiracleType = null;
+let _lastMiracleTime = -999;
+const COMBO_WINDOW   = 3.5;
+
+// ─── Prayer globals ───────────────────────────────────────────────────────────
+let activePrayers = [];
 
 // ─── SharedMind — collective intelligence ─────────────────────────────────────
 const SharedMind = {
