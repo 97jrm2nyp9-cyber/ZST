@@ -1005,6 +1005,7 @@ class VillagerAgent {
     this.timer  = rand(0, 3);
     this.velocity = new THREE.Vector3();
     this.alive  = true;
+    this.prayerTimer = rand(35, 85);
   }
 
   update(dt) {
@@ -1012,6 +1013,12 @@ class VillagerAgent {
     this.timer -= dt;
     this.hunger = Math.min(1, this.hunger + dt * 0.012);
     this.fear   = Math.max(0, this.fear - dt * 0.3);
+    // Prayer
+    this.prayerTimer -= dt;
+    if (this.prayerTimer <= 0) {
+      this.prayerTimer = rand(40, 90);
+      if (Math.random() < 0.65) spawnPrayer(this);
+    }
 
     // State transitions
     if (this.fear > 0.5) {
@@ -1266,6 +1273,30 @@ class CreatureAgent {
     if (type === 'fireball_hit')  SharedMind.notifyThreat(pos);
   }
 
+  witnessEvent(type) {
+    // Trait drift from witnessing player actions
+    switch(type) {
+      case 'fireball':
+        this.traits.aggression = clamp(this.traits.aggression+0.03,0,1);
+        this.traits.curiosity  = clamp(this.traits.curiosity+0.01,0,1);
+        if(!this._fireballWitness) this._fireballWitness=0;
+        this._fireballWitness++;
+        if(this._fireballWitness>=4) this._traumatized=true;
+        break;
+      case 'heal':
+        this.traits.friendliness=clamp(this.traits.friendliness+0.04,0,1);
+        this._loveHeal=true;
+        break;
+      case 'food':
+        this.traits.curiosity=clamp(this.traits.curiosity+0.02,0,1);
+        this.traits.friendliness=clamp(this.traits.friendliness+0.01,0,1);
+        break;
+      case 'wood':
+        this.traits.curiosity=clamp(this.traits.curiosity+0.015,0,1);
+        break;
+    }
+  }
+
   learnMiracle(type) {
     if (!this.learnedMiracles.has(type)) {
       this.learnedMiracles.add(type);
@@ -1457,11 +1488,20 @@ class CreatureAgent {
     const fresh  = types.filter(t => !SharedMind.wasRecentlyCast(t, 20));
     const pool   = fresh.length > 0 ? fresh : types;
     if (hungry > 2 && pool.includes('food')) return 'food';
+    if (this._loveHeal && pool.includes('heal') && Math.random()<0.55) return 'heal';
     if (hungry > 0 && pool.includes('heal')) return 'heal';
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
   _moveTo(tp, speed, dt) {
+    // Water fear quirk: steer away from island edge
+    if (this._fearWater) {
+      const distToEdge = ISLAND_RADIUS - Math.sqrt(tp.x*tp.x+tp.z*tp.z);
+      if (distToEdge < 15) {
+        const pull = this.group.position.clone().normalize().multiplyScalar(-5);
+        tp = tp.clone().add(pull);
+      }
+    }
     const dx = tp.x - this.group.position.x;
     const dz = tp.z - this.group.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
@@ -1664,10 +1704,15 @@ class CreatureAgent {
     const cFill = document.querySelector('#bar-curious .trait-fill');
     if (cFill) cFill.style.width = ((this.traits.curiosity || 0.5) * 100).toFixed(1) + '%';
 
+    const quirks = [];
+    if (this._fearWater)  quirks.push('fears water');
+    if (this._traumatized) quirks.push('scarred');
+    if (this._loveHeal)   quirks.push('healer');
+    const quirkStr = quirks.length ? ` (${quirks.join(', ')})` : '';
     document.getElementById('creature-status').textContent =
       this.learnedMiracles.size > 0
-        ? 'Knows: ' + [...this.learnedMiracles].join(', ')
-        : ['Discovering…', 'Watching you…', 'Learning…', 'Strategising…', 'Transcending…'][this.intelligenceLevel] || 'Evolving…';
+        ? 'Knows: ' + [...this.learnedMiracles].join(', ') + quirkStr
+        : (['Discovering…','Watching you…','Learning…','Strategising…','Transcending…'][this.intelligenceLevel]||'Evolving…') + quirkStr;
   }
 
   applyGLBModel(gltf) {
@@ -1741,6 +1786,7 @@ class CreatureAgent {
       this.group.position.x *= (ISLAND_RADIUS - 8) / r2;
       this.group.position.z *= (ISLAND_RADIUS - 8) / r2;
     }
+    if (r2 > ISLAND_RADIUS - 14) this._fearWater = true;
 
     this._updateEvolutionVisuals();
 
@@ -1993,8 +2039,101 @@ function updateAmbientSprites(t) {
   });
 }
 
+// ─── Prayer system ────────────────────────────────────────────────────────────
+function spawnPrayer(villager) {
+  if (!villager.alive) return;
+  if (activePrayers.some(p=>p.villager===villager)) return;
+  const type = villager.hunger>0.7 ? 'food' : villager.fear>0.6 ? 'protect' : 'heal';
+  const icons = { food:'🙏🍎', protect:'🙏🛡', heal:'🙏💚' };
+  const div = document.createElement('div');
+  div.className = 'prayer-bubble';
+  div.textContent = icons[type];
+  document.body.appendChild(div);
+  activePrayers.push({ villager, type, timer: 14, div });
+}
+
+function updatePrayers(dt) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  for (let i=activePrayers.length-1;i>=0;i--) {
+    const p = activePrayers[i];
+    p.timer -= dt;
+    if (p.timer<=0 || !p.villager.alive) { p.div.remove(); activePrayers.splice(i,1); continue; }
+    // Project 3D position to screen
+    const wp = p.villager.mesh.position.clone().add(v3(0,2.8,0));
+    const sv = wp.clone().project(camera);
+    const sx = (sv.x*0.5+0.5)*rect.width+rect.left;
+    const sy = (-sv.y*0.5+0.5)*rect.height+rect.top;
+    const visible = sv.z<1 && sx>0 && sx<window.innerWidth && sy>0 && sy<window.innerHeight;
+    if (visible) {
+      const bob = Math.sin(clock.getElapsedTime()*2+i)*4;
+      p.div.style.left = sx+'px';
+      p.div.style.top  = (sy-30+bob)+'px';
+      p.div.style.opacity = Math.min(1, p.timer*0.35).toFixed(2);
+      p.div.style.display = '';
+    } else {
+      p.div.style.display = 'none';
+    }
+  }
+}
+
+function checkPrayerAnswers(miracleType, pos) {
+  for (let i=activePrayers.length-1;i>=0;i--) {
+    const p = activePrayers[i];
+    if (!p.villager.alive) continue;
+    const dist = p.villager.mesh.position.distanceTo(pos);
+    const matches = (p.type==='food'    && miracleType==='food')
+                 || (p.type==='heal'    && miracleType==='heal')
+                 || (p.type==='protect' && (miracleType==='wood'||miracleType==='fireball'));
+    if (matches && dist<28) {
+      faithPoints += 28; updateFaithUI();
+      changeAlignment(0.05);
+      spawnBurst(p.villager.mesh.position.clone().add(v3(0,1.5,0)),0xffee88,22,7,0.2,1.8);
+      showMiracleFlash('🙏 Prayer Answered! +Faith','#ffee88');
+      p.div.remove(); activePrayers.splice(i,1);
+    }
+  }
+}
+
 // ─── Miracles ────────────────────────────────────────────────────────────────
+const _COMBOS = {
+  'food+heal': { name:'Feast!',     color:'#88ffcc', fn:(pos)=>{ for(const v of villagers){if(!v.alive)continue;v.hunger=0;v.fear=0;}spawnBurst(VILLAGE_POS.clone().add(v3(0,5,0)),0x88ffcc,55,12,0.3,3.5);changeAlignment(0.18);faithPoints+=50;updateFaithUI();playHeal();setTimeout(()=>playFood(),220); } },
+  'heal+food': { name:'Feast!',     color:'#88ffcc', fn:(pos)=>{ for(const v of villagers){if(!v.alive)continue;v.hunger=0;v.fear=0;}spawnBurst(VILLAGE_POS.clone().add(v3(0,5,0)),0x88ffcc,55,12,0.3,3.5);changeAlignment(0.18);faithPoints+=50;updateFaithUI();playHeal();setTimeout(()=>playFood(),220); } },
+  'fireball+wood': { name:'Controlled Burn!', color:'#ff8833', fn:(pos)=>{ [...trees].forEach(t=>{if(t.position.distanceTo(pos)<22) igniteObject(t);});setTimeout(()=>{spawnFood(pos.clone().add(v3(rand(-5,5),0,rand(-5,5))));spawnFood(pos.clone().add(v3(rand(-5,5),0,rand(-5,5))));},9000);spawnBurst(pos,0xff8833,35,12,0.28,2.5);changeAlignment(-0.04); } },
+  'wood+fireball': { name:'Controlled Burn!', color:'#ff8833', fn:(pos)=>{ [...trees].forEach(t=>{if(t.position.distanceTo(pos)<22) igniteObject(t);});setTimeout(()=>{spawnFood(pos.clone().add(v3(rand(-5,5),0,rand(-5,5))));spawnFood(pos.clone().add(v3(rand(-5,5),0,rand(-5,5))));},9000);spawnBurst(pos,0xff8833,35,12,0.28,2.5);changeAlignment(-0.04); } },
+  'heal+fireball': { name:'Steam Burst!', color:'#aaddff', fn:(pos)=>{ scene.traverse(obj=>{ if(!obj.userData) return; if(['villager','rock','log'].includes(obj.userData.type)){const d=obj.position.distanceTo(pos);if(d<18&&d>0.5){const away=obj.position.clone().sub(pos).normalize();obj.userData.vel=away.multiplyScalar(rand(8,22));obj.userData.thrown=true;obj.userData.throwTimer=0;}} });spawnBurst(pos,0xaaddff,50,18,0.25,2.5);playTone(660,'sine',0.7,0.25); } },
+  'fireball+heal': { name:'Steam Burst!', color:'#aaddff', fn:(pos)=>{ scene.traverse(obj=>{ if(!obj.userData) return; if(['villager','rock','log'].includes(obj.userData.type)){const d=obj.position.distanceTo(pos);if(d<18&&d>0.5){const away=obj.position.clone().sub(pos).normalize();obj.userData.vel=away.multiplyScalar(rand(8,22));obj.userData.thrown=true;obj.userData.throwTimer=0;}} });spawnBurst(pos,0xaaddff,50,18,0.25,2.5);playTone(660,'sine',0.7,0.25); } },
+  'wood+heal': { name:'Resurrection!', color:'#ffffff', fn:(pos)=>{ let revived=0; for(const v of villagers){if(!v.alive&&Math.random()<0.7){v.alive=true;v.mesh.visible=true;v.hunger=0.3;v.fear=0;spawnBurst(v.mesh.position.clone().add(v3(0,1,0)),0xffffff,20,8,0.2,1.5);revived++;}}if(revived>0){changeAlignment(0.15);faithPoints+=revived*20;updateFaithUI();showMiracleFlash(`${revived} Revived!`,'#ffffff');}spawnBurst(pos,0xffffff,40,12,0.28,2.8); } },
+  'heal+wood': { name:'Resurrection!', color:'#ffffff', fn:(pos)=>{ let revived=0; for(const v of villagers){if(!v.alive&&Math.random()<0.7){v.alive=true;v.mesh.visible=true;v.hunger=0.3;v.fear=0;spawnBurst(v.mesh.position.clone().add(v3(0,1,0)),0xffffff,20,8,0.2,1.5);revived++;}}if(revived>0){changeAlignment(0.15);faithPoints+=revived*20;updateFaithUI();}spawnBurst(pos,0xffffff,40,12,0.28,2.8); } },
+};
+
 function castMiracleAt(type, pos, fromPlayer = true) {
+  // ── Combo detection ──────────────────────────────────────────────────────
+  if (fromPlayer) {
+    const now = performance.now() / 1000;
+    const elapsed = now - _lastMiracleTime;
+    if (_lastMiracleType && elapsed < COMBO_WINDOW) {
+      const key = _lastMiracleType + '+' + type;
+      const combo = _COMBOS[key];
+      if (combo) {
+        _lastMiracleType = null; _lastMiracleTime = -999;
+        combo.fn(pos);
+        showMiracleFlash('✦ ' + combo.name, combo.color);
+        playTone(528,'sine',0.5,0.2); setTimeout(()=>playTone(660,'sine',0.4,0.18),150); setTimeout(()=>playTone(792,'sine',0.3,0.15),300);
+        return;
+      }
+    }
+    _lastMiracleType = type;
+    _lastMiracleTime = performance.now() / 1000;
+  }
+  // ── Creature witnessing ──────────────────────────────────────────────────
+  if (fromPlayer) {
+    creatures.forEach(c => {
+      if (c.group.position.distanceTo(pos) < 35) c.witnessEvent(type);
+    });
+  }
+  // Check prayer answers
+  if (fromPlayer) checkPrayerAnswers(type, pos);
+
   if (fromPlayer) {
     miracleCastCount[type] = (miracleCastCount[type] || 0) + 1;
     if (miracleCastCount[type] >= 3) creatures.forEach(c => c.learnMiracle(type));
@@ -2022,6 +2161,10 @@ function castMiracleAt(type, pos, fromPlayer = true) {
 function castFireball(targetPos, fromPlayer) {
   playFireball();
   if (fromPlayer) changeAlignment(-0.12);
+  // Damage rival god if targeted near its totem
+  if (fromPlayer && rivalGod && !rivalGod.defeated) {
+    if (targetPos.distanceTo(RIVAL_POS) < 22) rivalGod.takeDamage(25);
+  }
   // Spawn fireball projectile
   const geo = new THREE.SphereGeometry(0.7, 8, 8);
   const mat = new THREE.MeshStandardMaterial({ color: 0xff4400, emissive: 0xff2200, emissiveIntensity: 2.5, roughness: 0.2 });
@@ -2193,6 +2336,110 @@ function updateClouds(dt) {
     c.userData.angle += dt * c.userData.speed * 0.003;
     c.position.x = Math.cos(c.userData.angle) * c.userData.dist;
     c.position.z = Math.sin(c.userData.angle) * c.userData.dist;
+  }
+}
+
+// ─── Weather system ───────────────────────────────────────────────────────────
+function _pickWeatherType() {
+  const ev = clamp(-alignment, 0, 1);
+  const go = clamp(alignment, 0, 1);
+  const w = { clear: 0.3+go*0.3, rain: 0.2+go*0.25, storm: 0.1+ev*0.25, drought: 0.05+ev*0.35 };
+  let r = Math.random() * Object.values(w).reduce((a,b)=>a+b,0);
+  for (const [t,v] of Object.entries(w)) { r-=v; if(r<=0) return t; }
+  return 'clear';
+}
+
+function initWeather() {
+  const geo = new THREE.BufferGeometry();
+  const count = 900;
+  const pos = new Float32Array(count * 3);
+  for (let i=0;i<count;i++){pos[i*3]=rand(-110,110);pos[i*3+1]=rand(0,65);pos[i*3+2]=rand(-110,110);}
+  geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  const mat = new THREE.PointsMaterial({color:0x99bbff,size:0.22,transparent:true,opacity:0,depthWrite:false});
+  window._rainPoints = new THREE.Points(geo, mat);
+  scene.add(window._rainPoints);
+
+  const lf = document.createElement('div');
+  lf.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:#ddeeff;opacity:0;pointer-events:none;z-index:4;';
+  document.body.appendChild(lf);
+  window._lightningDiv = lf;
+}
+
+function _doLightning() {
+  if (!window._lightningDiv) return;
+  window._lightningDiv.style.transition='none';
+  window._lightningDiv.style.opacity='0.45';
+  playTone(55,'sawtooth',0.9,0.28);
+  setTimeout(()=>{ window._lightningDiv.style.transition='opacity 0.15s'; window._lightningDiv.style.opacity='0'; },60);
+  if (trees.length>0 && Math.random()<0.3) igniteObject(trees[Math.floor(Math.random()*trees.length)]);
+  for(const v of villagers){ if(!v.alive) continue; v.fear=Math.min(1,v.fear+0.5); v.state='flee'; }
+}
+
+function updateWeather(dt) {
+  _weatherTimer += dt;
+  if (_weatherTimer >= _weatherNextChange) {
+    _weatherTimer = 0; _weatherNextChange = rand(55,200);
+    const next = _pickWeatherType();
+    if (next !== _weatherType) {
+      _weatherType = next;
+      const msgs={clear:'Skies clear',rain:'Rain falls…',storm:'Storm rages!',drought:'Drought…'};
+      const cols={clear:'#aaccff',rain:'#88aaff',storm:'#cc99ff',drought:'#cc8833'};
+      showMiracleFlash(msgs[_weatherType], cols[_weatherType]);
+    }
+  }
+  const targets={clear:0,rain:0.6,storm:1.0,drought:0.15};
+  _weatherIntensity = lerp(_weatherIntensity, targets[_weatherType]||0, dt*0.4);
+
+  // Rain points
+  if (window._rainPoints) {
+    const wet = _weatherType==='rain'||_weatherType==='storm';
+    window._rainPoints.visible = wet;
+    window._rainPoints.material.opacity = _weatherIntensity*0.55;
+    if (wet) {
+      const attr = window._rainPoints.geometry.attributes.position;
+      const spd = 28 + _weatherIntensity*20;
+      for(let i=0;i<attr.count;i++){
+        attr.setY(i,attr.getY(i)-spd*dt);
+        if(attr.getY(i)<-2){attr.setY(i,rand(40,70));attr.setX(i,rand(-110,110));attr.setZ(i,rand(-110,110));}
+      }
+      attr.needsUpdate=true;
+    }
+  }
+
+  // Lightning in storms
+  if (_weatherType==='storm') {
+    _lightningTimer-=dt;
+    if(_lightningTimer<=0){_lightningTimer=rand(3.5,11);_doLightning();}
+    if(Math.random()<0.003 && trees.length>0) igniteObject(trees[Math.floor(Math.random()*trees.length)]);
+  }
+
+  // Drought: hunger rises faster, food spoils
+  if (_weatherType==='drought') {
+    for(const v of villagers){if(v.alive) v.hunger=Math.min(1,v.hunger+0.007*dt);}
+    for(let i=foodPiles.length-1;i>=0;i--){
+      const f=foodPiles[i];
+      if(!f.parent){foodPiles.splice(i,1);continue;}
+      f.userData.droughtAge=(f.userData.droughtAge||0)+dt;
+      if(f.userData.droughtAge>35){scene.remove(f);foodPiles.splice(i,1);}
+    }
+  }
+
+  // Cloud darkening
+  const cloudOpacity={clear:0.82,rain:0.55,storm:0.25,drought:0.70}[_weatherType]||0.82;
+  const cloudGray={clear:1.0,rain:0.72,storm:0.42,drought:0.88}[_weatherType]||1.0;
+  for(const c of clouds) c.children.forEach(p=>{
+    if(p.material){
+      p.material.opacity=lerp(p.material.opacity,cloudOpacity,dt*0.25);
+      p.material.color.setRGB(cloudGray,cloudGray,cloudGray*1.01);
+    }
+  });
+
+  // Weather HUD badge
+  const badge=document.getElementById('weather-badge');
+  if(badge){
+    const icons={clear:'',rain:'🌧 Rain',storm:'⛈ Storm',drought:'☀ Drought'};
+    badge.textContent=icons[_weatherType]||'';
+    badge.style.opacity=_weatherType==='clear'?'0':'1';
   }
 }
 
@@ -3253,6 +3500,198 @@ const STRUCTURES = {
   grandTower:   buildGrandTower,
 };
 
+// ─── Rival God ────────────────────────────────────────────────────────────────
+class RivalGod {
+  constructor() {
+    this.faith       = 75;
+    this.attackTimer = rand(50, 80);
+    this.defeated    = false;
+    this.lastAction  = 'Watching…';
+    this._rivalVillagers = [];
+    this._buildScene();
+    this._buildHUD();
+  }
+
+  _buildScene() {
+    const h = getTerrainHeight(RIVAL_POS.x, RIVAL_POS.z);
+    const dark  = new THREE.MeshStandardMaterial({color:0x1a0008,roughness:0.7,metalness:0.15});
+    const skull = new THREE.MeshStandardMaterial({color:0xddddcc,roughness:0.65,metalness:0.05});
+    const eyeM  = new THREE.MeshStandardMaterial({color:0xff0000,emissive:0xff0000,emissiveIntensity:3.0,roughness:0.1});
+    const orbM  = new THREE.MeshStandardMaterial({color:0x880022,emissive:0xcc0033,emissiveIntensity:2.8,roughness:0.05,metalness:0.5});
+
+    // Dark totem
+    this.totem = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.72,10,8),dark);
+    this.totem.position.set(RIVAL_POS.x, h+5, RIVAL_POS.z);
+    this.totem.castShadow=true; scene.add(this.totem);
+
+    // Skull cap
+    this.skullMesh=new THREE.Mesh(new THREE.SphereGeometry(0.75,8,7),skull);
+    this.skullMesh.position.set(RIVAL_POS.x,h+10.8,RIVAL_POS.z); scene.add(this.skullMesh);
+    [[-0.4,0],[0.4,0]].forEach(([ox])=>{
+      const horn=new THREE.Mesh(new THREE.ConeGeometry(0.14,0.9,5),dark);
+      horn.position.set(RIVAL_POS.x+ox,h+11.55,RIVAL_POS.z); horn.rotation.z=ox*0.5; scene.add(horn);
+    });
+    [-0.28,0.28].forEach(ox=>{
+      const e=new THREE.Mesh(new THREE.SphereGeometry(0.1,6,6),eyeM);
+      e.position.set(RIVAL_POS.x+ox,h+10.85,RIVAL_POS.z+0.65); scene.add(e);
+    });
+
+    // Evil orb
+    this.orb=new THREE.Mesh(new THREE.SphereGeometry(0.42,10,10),orbM);
+    this.orb.position.set(RIVAL_POS.x,h+7,RIVAL_POS.z); scene.add(this.orb);
+    this.orbLight=new THREE.PointLight(0xaa0022,2.2,32);
+    this.orbLight.position.copy(this.orb.position); scene.add(this.orbLight);
+
+    // Rival dark creature
+    const creatureGroup=new THREE.Group();
+    const bodyM=new THREE.MeshStandardMaterial({color:0x1e0033,roughness:0.72,metalness:0.1,emissive:0x0a0015,emissiveIntensity:0.4});
+    const body=new THREE.Mesh(new THREE.BoxGeometry(2.8,3.2,2.2),bodyM); body.position.y=1.8; body.castShadow=true; creatureGroup.add(body);
+    const headM=new THREE.Mesh(new THREE.SphereGeometry(1.05,8,8),bodyM); headM.position.set(0,4.0,0); creatureGroup.add(headM);
+    [-0.45,0.45].forEach(ox=>{
+      const horn=new THREE.Mesh(new THREE.ConeGeometry(0.15,0.85,5),dark); horn.position.set(ox,5.0,0); horn.rotation.z=ox*0.3; creatureGroup.add(horn);
+      const eye=new THREE.Mesh(new THREE.SphereGeometry(0.13,6,6),eyeM); eye.position.set(ox,4.05,0.9); creatureGroup.add(eye);
+    });
+    const ch=getTerrainHeight(RIVAL_POS.x+14,RIVAL_POS.z+6);
+    creatureGroup.position.set(RIVAL_POS.x+14,ch+1,RIVAL_POS.z+6);
+    scene.add(creatureGroup);
+    this.rivalCreature=creatureGroup;
+    this.creatureTarget=creatureGroup.position.clone();
+    this.creatureAge=0;
+
+    // 4 dark rival villagers
+    const dVill=new THREE.MeshStandardMaterial({color:0x332211,roughness:0.85,metalness:0});
+    for(let i=0;i<4;i++){
+      const a=(i/4)*Math.PI*2;
+      const rx=RIVAL_POS.x+Math.cos(a)*rand(5,11);
+      const rz=RIVAL_POS.z+Math.sin(a)*rand(5,11);
+      const rh=getTerrainHeight(rx,rz);
+      const m=new THREE.Mesh(new THREE.CapsuleGeometry(0.38,0.75,4,7),dVill);
+      m.position.set(rx,rh+0.75,rz); m.castShadow=true; scene.add(m);
+      this._rivalVillagers.push({mesh:m,alive:true,wander:new THREE.Vector3(rx,rh,rz),t:rand(0,8)});
+    }
+  }
+
+  _buildHUD() {
+    const panel=document.createElement('div');
+    panel.id='rival-panel';
+    panel.style.cssText='position:absolute;top:16px;right:16px;background:rgba(0,0,0,0.5);border:1px solid rgba(255,80,80,0.2);border-radius:8px;padding:10px 14px;min-width:145px;pointer-events:none;';
+    panel.innerHTML=`<div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#ff6688;margin-bottom:5px;">⚔ Rival God</div>
+<div style="width:100%;height:6px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden;border:1px solid rgba(255,80,80,0.25)"><div id="rival-faith-fill" style="height:100%;width:75%;background:linear-gradient(to right,#660011,#ff2244);transition:width 0.5s;border-radius:3px;"></div></div>
+<div id="rival-status" style="font-size:9px;color:rgba(255,160,160,0.65);margin-top:5px;letter-spacing:1px;"></div>`;
+    document.getElementById('ui').appendChild(panel);
+    this._faithFill=document.getElementById('rival-faith-fill');
+    this._statusEl =document.getElementById('rival-status');
+  }
+
+  attack() {
+    if (this.defeated) return;
+    const numBalls = this.faith>60?3:2;
+    this.lastAction='Attacking!';
+    showMiracleFlash('⚔ Rival God Attacks!','#ff2244');
+    playTone(55,'sawtooth',0.6,0.22);
+    for(let i=0;i<numBalls;i++){
+      setTimeout(()=>{
+        const tx=VILLAGE_POS.x+rand(-14,14), tz=VILLAGE_POS.z+rand(-14,14);
+        const tgt=new THREE.Vector3(tx,getTerrainHeight(tx,tz),tz);
+        const geo=new THREE.SphereGeometry(0.68,8,8);
+        const mat=new THREE.MeshStandardMaterial({color:0x550000,emissive:0xaa0022,emissiveIntensity:2.6});
+        const ball=new THREE.Mesh(geo,mat);
+        const sx=RIVAL_POS.x+rand(-4,4), sz=RIVAL_POS.z+rand(-4,4);
+        ball.position.set(sx,getTerrainHeight(sx,sz)+10,sz);
+        scene.add(ball);
+        const dir=tgt.clone().sub(ball.position).normalize();
+        ball.userData.vel=dir.multiplyScalar(24);
+        ball.userData.type='fireball';
+        ball.userData.fromRival=true;
+        projectiles.push(ball);
+      },i*700);
+    }
+  }
+
+  takeDamage(amt) {
+    if(this.defeated) return;
+    this.faith=Math.max(0,this.faith-amt);
+    spawnBurst(this.totem.position.clone(),0x880022,18,8,0.2,1.5);
+    playTone(150,'sawtooth',0.3,0.25);
+    this.lastAction='Under attack!';
+    if(this.faith<=0) this.defeat();
+  }
+
+  defeat() {
+    if(this.defeated) return;
+    this.defeated=true;
+    showMiracleFlash('✦ RIVAL GOD DEFEATED! ✦','#ffdd44');
+    spawnBurst(this.totem.position.clone(),0xffdd44,80,15,0.35,5.0);
+    playTone(110,'triangle',2.0,0.4); setTimeout(()=>playTone(165,'triangle',1.5,0.3),300);
+    [this.totem,this.skullMesh,this.orb,this.rivalCreature].forEach(m=>{
+      if(m){spawnBurst(m.position.clone(),0x880022,12,7,0.18,1.5);scene.remove(m);}
+    });
+    this._rivalVillagers.forEach(v=>{if(v.mesh)scene.remove(v.mesh);});
+    if(this.orbLight) scene.remove(this.orbLight);
+    changeAlignment(0.35);
+    faithPoints+=200; updateFaithUI();
+    const p=document.getElementById('rival-panel'); if(p) p.style.display='none';
+  }
+
+  update(dt) {
+    if(this.defeated) return;
+    const el=clock.getElapsedTime();
+
+    // Orb spin + pulse
+    if(this.orb) this.orb.rotation.y=el*1.8;
+    if(this.orbLight) this.orbLight.intensity=2.2+Math.sin(el*2.8)*0.7;
+
+    // Attack countdown
+    this.attackTimer-=dt;
+    if(this.attackTimer<=0){this.attackTimer=rand(38,72);if(this.faith>8) this.attack();}
+
+    // Creature wanders — aggressive toward player village when faith is high
+    this.creatureAge+=dt;
+    const goAggro=this.faith>40&&this.creatureAge>25;
+    const cBase=goAggro?VILLAGE_POS:RIVAL_POS;
+    this.creatureTarget.set(
+      cBase.x+Math.cos(this.creatureAge*0.16)*12,0,cBase.z+Math.sin(this.creatureAge*0.13)*12);
+    const cp=this.rivalCreature.position;
+    const ddx=this.creatureTarget.x-cp.x, ddz=this.creatureTarget.z-cp.z;
+    const dd=Math.sqrt(ddx*ddx+ddz*ddz);
+    if(dd>1){const ss=Math.min(2.8*dt,dd)/dd;cp.x+=ddx*ss;cp.z+=ddz*ss;this.rivalCreature.rotation.y=Math.atan2(ddx,ddz);}
+    cp.y=lerp(cp.y,getTerrainHeight(cp.x,cp.z)+1.5,0.12);
+    // Rival creature scares player villagers
+    for(const v of villagers){
+      if(!v.alive) continue;
+      if(v.mesh.position.distanceTo(cp)<14){v.fear=Math.min(1,v.fear+0.35*dt);v.state='flee';}
+    }
+
+    // Rival faith grows from its own villagers (slowly)
+    const aliveR=this._rivalVillagers.filter(v=>v.alive).length;
+    this.faith=Math.min(100,this.faith+aliveR*0.25*dt);
+
+    // Wander rival villagers
+    for(const rv of this._rivalVillagers){
+      if(!rv.alive) continue;
+      rv.t-=dt;
+      if(rv.t<=0||rv.mesh.position.distanceTo(rv.wander)<2){
+        rv.t=rand(5,14);
+        const ra=Math.random()*Math.PI*2, rr=rand(4,13);
+        rv.wander.set(RIVAL_POS.x+Math.cos(ra)*rr,0,RIVAL_POS.z+Math.sin(ra)*rr);
+      }
+      const rdx=rv.wander.x-rv.mesh.position.x, rdz=rv.wander.z-rv.mesh.position.z;
+      const rd=Math.sqrt(rdx*rdx+rdz*rdz);
+      if(rd>0.5){rv.mesh.position.x+=rdx/rd*1.4*dt;rv.mesh.position.z+=rdz/rd*1.4*dt;}
+      rv.mesh.position.y=lerp(rv.mesh.position.y,getTerrainHeight(rv.mesh.position.x,rv.mesh.position.z)+0.75,0.1);
+    }
+
+    // HUD
+    if(this._faithFill) this._faithFill.style.width=this.faith+'%';
+    if(this._statusEl)  this._statusEl.textContent=this.lastAction;
+    if(!goAggro) this.lastAction='Watching…';
+  }
+}
+
+function initRivalGod() {
+  rivalGod = new RivalGod();
+}
+
 // ─── Tutorial fade ─────────────────────────────────────────────────────────────
 function initTutorial() {
   setTimeout(() => {
@@ -3323,6 +3762,12 @@ function gameLoop() {
 
   // Ambient sprites
   updateAmbientSprites(elapsed);
+  // Weather
+  updateWeather(dt);
+  // Prayers
+  updatePrayers(dt);
+  // Rival god
+  if (rivalGod) rivalGod.update(dt);
 
   // Hand bobbing
   if (godHand && !grabbedObject) {
@@ -3352,6 +3797,8 @@ function init() {
   spawnCreature(VILLAGE_POS.x + 25, VILLAGE_POS.z + 5);
   loadModels();
   spawnAmbientSprites();
+  initWeather();
+  initRivalGod();
   initGestureCanvas();
   initInput();
   initTutorial();
