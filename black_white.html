@@ -2305,7 +2305,7 @@ function castMiracleAt(type, pos, fromPlayer = true) {
   } else if (type === 'food') {
     spawnFood(pos);
     if (fromPlayer) changeAlignment(0.05);
-    spawnBurst(pos, 0xffcc44, 15, 6, 0.2, 0.8);
+    spawnBurst(pos, 0xffcc44, 35, 8, 0.25, 1.4);
     playFood();
     showMiracleFlash('Food', '#ffcc44');
   } else if (type === 'heal') {
@@ -2344,7 +2344,7 @@ function castFireball(targetPos, fromPlayer) {
 function castHeal(pos) {
   playHeal();
   changeAlignment(0.10);
-  spawnBurst(pos, 0x44ff88, 30, 7, 0.2, 1.5);
+  spawnBurst(pos, 0x44ff88, 65, 10, 0.25, 2.2);
   creatures.forEach(c => c.remember('healed', pos));
   // Heal nearby villagers
   for (const v of villagers) {
@@ -3269,7 +3269,7 @@ function updateDayNight(dt) {
   const topDay  = new THREE.Color(0.08 * aT + 0.04, 0.24 * aT + 0.04, 0.78);
   const topNight= new THREE.Color(0.01, 0.02, 0.12);
   const topDusk = new THREE.Color(0.18, 0.08, 0.30);
-  const botDay  = new THREE.Color(0.46, 0.68 * aT, 0.96);
+  const botDay  = new THREE.Color(0.50, 0.72 * aT, 0.98);
   const botNight= new THREE.Color(0.02, 0.04, 0.18);
   const botDusk = new THREE.Color(0.80, 0.36, 0.10);
 
