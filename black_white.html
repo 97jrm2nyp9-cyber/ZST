@@ -22,7 +22,7 @@ canvas { display: block; }
   pointer-events: auto;
 }
 .mbtn {
-  width: 64px; height: 64px; border-radius: 12px;
+  width: 72px; height: 72px; border-radius: 12px;
   border: 1.5px solid rgba(255,255,255,0.3);
   background: rgba(0,0,0,0.55); color: #fff;
   font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase;
@@ -40,7 +40,7 @@ canvas { display: block; }
   pointer-events: auto;
 }
 .cbtn {
-  width: 64px; height: 64px; border-radius: 12px;
+  width: 72px; height: 72px; border-radius: 12px;
   border: 1.5px solid rgba(255,255,255,0.3);
   background: rgba(0,0,0,0.55); color: #fff;
   font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase;
@@ -156,11 +156,13 @@ canvas { display: block; }
 
 /* Miracle feedback */
 #miracle-flash {
-  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  font-size: 18px; letter-spacing: 3px; text-transform: uppercase;
-  color: #fff; text-shadow: 0 0 20px currentColor;
+  position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%);
+  font-size: 22px; letter-spacing: 4px; text-transform: uppercase;
+  color: #fff; text-shadow: 0 0 30px currentColor, 0 0 60px currentColor;
   opacity: 0; transition: opacity 0.15s;
-  pointer-events: none;
+  pointer-events: none; font-weight: 300;
+  background: rgba(0,0,0,0.25); padding: 8px 22px; border-radius: 4px;
+  white-space: nowrap;
 }
 
 /* Gesture canvas overlay */
@@ -181,6 +183,21 @@ canvas { display: block; }
 @keyframes prayFloat { from{opacity:0;transform:translate(-50%,-80%)} to{opacity:1;transform:translate(-50%,-100%)} }
 #resource-panel { position:absolute; left:20px; bottom:180px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.12); border-radius:6px; padding:6px 10px; pointer-events:none; }
 .res-row { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,0.7); font-size:11px; letter-spacing:1px; }
+#minimap {
+  position: absolute; bottom: 22px; right: 22px;
+  border-radius: 50%; border: 2px solid rgba(255,255,255,0.22);
+  box-shadow: 0 0 18px rgba(0,0,0,0.7), inset 0 0 8px rgba(0,0,0,0.4);
+  opacity: 0.88; pointer-events: none;
+}
+#objective-panel {
+  position: absolute; bottom: 158px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.5); border: 1px solid rgba(255,200,80,0.25);
+  border-radius: 6px; padding: 5px 16px; text-align: center;
+  pointer-events: none; max-width: 280px;
+  transition: opacity 0.5s;
+}
+#objective-label { font-size: 9px; letter-spacing: 3px; color: rgba(255,200,80,0.6); text-transform: uppercase; }
+#objective-text  { font-size: 12px; color: rgba(255,255,255,0.85); letter-spacing: 1px; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -236,6 +253,10 @@ canvas { display: block; }
   </div>
 
   <div id="weather-badge"></div>
+  <div id="objective-panel">
+    <div id="objective-label">OBJECTIVE</div>
+    <div id="objective-text">Feed your villagers</div>
+  </div>
 
   <!-- Touch miracle buttons -->
   <div id="miracle-grid">
@@ -254,8 +275,16 @@ canvas { display: block; }
   <!-- Draw spell button -->
   <button id="draw-btn">✦ Draw Spell</button>
 
+  <div id="controls">
+    🖱 Middle drag: orbit &nbsp;|&nbsp; Shift+drag: pan &nbsp;|&nbsp; Scroll: zoom<br>
+    ⌨ 1=Fireball &nbsp; 2=Food &nbsp; 3=Heal &nbsp; 4=Wood<br>
+    R=Reward creature &nbsp; P=Punish &nbsp; RMB=Draw spell<br>
+    🎯 Fire two miracles fast for combo effects!
+  </div>
+
   <div id="miracle-flash"></div>
   <canvas id="gesture-canvas"></canvas>
+  <canvas id="minimap" width="140" height="140"></canvas>
 </div>
 
 <canvas id="c"></canvas>
@@ -411,9 +440,9 @@ const VILLAGE_POS    = new THREE.Vector3(18, 0, 10);
 
 // ─── Globals ─────────────────────────────────────────────────────────────────
 let renderer, scene, camera, composer;
-let camDist  = 150;
-let camTheta = 0.0;    // azimuth (radians around Y)
-let camPhi   = 0.52;   // elevation above horizon (radians)
+let camDist  = 90;
+let camTheta = -0.4;   // azimuth (radians around Y)
+let camPhi   = 0.72;   // elevation above horizon (radians)
 let camTarget;         // initialized in initScene after THREE is ready
 let _orbitActive = false, _panActive = false;
 let _camLastX = 0, _camLastY = 0;
@@ -426,6 +455,11 @@ let worldMouse = new THREE.Vector3();
 let prevWorldMouse = new THREE.Vector3();
 let grabbedObject = null;
 let grabOffset = new THREE.Vector3();
+let _hoveredObj = null;
+
+let _camShake = 0;
+let _objTimer = 0;
+let _eventTimer = rand(45, 75);
 
 let alignment = 0;       // -1 evil … +1 good
 let faithPoints = 0;
@@ -666,8 +700,8 @@ function buildTerrain() {
       // Biome colours
       '  vec3 wetSand  = vec3(0.62,0.56,0.38);',
       '  vec3 drySand  = vec3(0.92,0.83,0.56);',
-      '  vec3 grassLo  = vec3(0.30,0.58,0.18);',
-      '  vec3 grassHi  = vec3(0.18,0.42,0.11);',
+      '  vec3 grassLo  = vec3(0.28,0.62,0.16);',
+      '  vec3 grassHi  = vec3(0.16,0.48,0.10);',
       '  vec3 rock     = vec3(0.52,0.48,0.42);',
       '  vec3 snow     = vec3(0.94,0.96,1.00);',
       // Slope → rock on steep faces
@@ -708,7 +742,7 @@ function buildTerrain() {
       // Specular — sand catches sun, grass/forest matte
       '  float specAmt = (1.0 - clamp(tGrass + tForest*0.8, 0.0, 1.0)) * 0.08;',
       '  float spec    = pow(max(dot(reflect(-sunDir, n), viewDir), 0.0), 22.0) * specAmt;',
-      '  float light   = 0.22 + 0.78*diff + skyBnc;',
+      '  float light   = 0.18 + 0.82*diff + skyBnc;',
       '  gl_FragColor  = vec4(col * light + vec3(spec), 1.0);',
       '}'
     ].join('\n'),
@@ -1021,6 +1055,56 @@ function buildHand() {
 
   scene.add(handGroup);
   godHand = handGroup;
+}
+
+function shakeCamera(intensity) {
+  _camShake = Math.max(_camShake, intensity);
+}
+
+function updateHoverHighlight() {
+  let best = null, bestD = 11;
+  scene.traverse(obj => {
+    if (!obj.userData.type) return;
+    if (['villager','food','log','rock'].includes(obj.userData.type)) {
+      const pos = obj.position || (obj.getWorldPosition && obj.getWorldPosition(new THREE.Vector3()));
+      if (pos) {
+        const d = pos.distanceTo(worldMouse);
+        if (d < bestD) { bestD = d; best = obj; }
+      }
+    }
+  });
+  // trees: check group position
+  for (const t of trees) {
+    const d = t.position.distanceTo(worldMouse);
+    if (d < bestD) { bestD = d; best = t; }
+  }
+
+  if (_hoveredObj && _hoveredObj !== best) {
+    _hoveredObj.traverse(c => {
+      if (c.isMesh && c.material) {
+        if (c._origEmissive !== undefined) {
+          c.material.emissive.setHex(c._origEmissiveHex || 0);
+          c.material.emissiveIntensity = c._origEmissive;
+          delete c._origEmissive;
+        }
+      }
+    });
+    _hoveredObj = null;
+  }
+
+  if (best && !grabbedObject) {
+    _hoveredObj = best;
+    best.traverse(c => {
+      if (c.isMesh && c.material) {
+        if (c._origEmissive === undefined) {
+          c._origEmissive = c.material.emissiveIntensity || 0;
+          c._origEmissiveHex = c.material.emissive ? c.material.emissive.getHex() : 0;
+        }
+        c.material.emissive.setRGB(0.9, 0.75, 0.15);
+        c.material.emissiveIntensity = 0.7;
+      }
+    });
+  }
 }
 
 function updateHandColor() {
@@ -2054,7 +2138,7 @@ class Particle {
     this.size = size;
     const geo = new THREE.SphereGeometry(size, 4, 4);
     const mat = new THREE.MeshStandardMaterial({
-      color, emissive: color, emissiveIntensity: 0.6,
+      color, emissive: color, emissiveIntensity: 1.4,
       transparent: true, opacity: 1,
     });
     this.mesh = new THREE.Mesh(geo, mat);
@@ -2999,7 +3083,7 @@ function initScene() {
   scene.fog = new THREE.FogExp2(0xb8d4f0, 0.0016);
 
   camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.3, 800);
-  camTarget = new THREE.Vector3(0, 0, 0);
+  camTarget = new THREE.Vector3(VILLAGE_POS.x, 0, VILLAGE_POS.z);
 
   function updateCam() {
     const cp = Math.cos(camPhi), sp = Math.sin(camPhi);
@@ -3182,7 +3266,7 @@ function updateDayNight(dt) {
   const aT = (alignment + 1) / 2; // alignment: 0=evil 1=good
 
   // Sky colours: blend night → day → sunset, then alignment tint
-  const topDay  = new THREE.Color(0.12 * aT, 0.28 * aT, 0.72);
+  const topDay  = new THREE.Color(0.08 * aT + 0.04, 0.24 * aT + 0.04, 0.78);
   const topNight= new THREE.Color(0.01, 0.02, 0.12);
   const topDusk = new THREE.Color(0.18, 0.08, 0.30);
   const botDay  = new THREE.Color(0.46, 0.68 * aT, 0.96);
