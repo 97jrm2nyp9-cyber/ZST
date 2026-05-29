@@ -488,7 +488,19 @@ let resWood  = 0;
 // ─── Block build queue ────────────────────────────────────────────────────────
 let _blockQueue = []; // [{x,y,z,mat,sx,sy,sz}]
 let _blockTimer  = 0;
-const BLOCK_INTERVAL = 0.10; // seconds between block placements
+const BLOCK_INTERVAL = 0.04; // seconds between block placements
+
+let _styleIndex  = 0;
+const ARCH_STYLES = [
+  { name:'Egyptian',    primary:'sandstone', secondary:'stone',     accent:'gold',     dark:'cobble'   },
+  { name:'Roman',       primary:'marble',    secondary:'cobble',    accent:'gold',     dark:'stone'    },
+  { name:'Greek',       primary:'marble',    secondary:'stone',     accent:'crystal',  dark:'cobble'   },
+  { name:'Norse',       primary:'wood',      secondary:'stone',     accent:'obsidian', dark:'darkstone'},
+  { name:'Gothic',      primary:'darkstone', secondary:'cobble',    accent:'crystal',  dark:'obsidian' },
+  { name:'Mayan',       primary:'stone',     secondary:'cobble',    accent:'gold',     dark:'darkstone'},
+  { name:'Futuristic',  primary:'obsidian',  secondary:'crystal',   accent:'crystal',  dark:'darkstone'},
+  { name:'Alien',       primary:'crystal',   secondary:'obsidian',  accent:'gold',     dark:'darkstone'},
+];
 
 function queueBlock(x, y, z, mat, sx=1, sy=1, sz=1) {
   _blockQueue.push({ x, y, z, mat, sx, sy, sz });
@@ -499,25 +511,28 @@ function updateBlockQueue(dt) {
   _blockTimer -= dt;
   if (_blockTimer > 0) return;
   _blockTimer = BLOCK_INTERVAL;
-
-  const b = _blockQueue.shift();
-  const geo = new THREE.BoxGeometry(b.sx, b.sy, b.sz);
-  const mesh = new THREE.Mesh(geo, b.mat);
-  mesh.position.set(b.x, b.y, b.z);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  // Pop-in scale animation
-  mesh.scale.setScalar(0.01);
-  scene.add(mesh);
-  const grow = () => {
-    mesh.scale.multiplyScalar(1.15);
-    if (mesh.scale.x < 1.0) requestAnimationFrame(grow);
-    else mesh.scale.setScalar(1.0);
-  };
-  requestAnimationFrame(grow);
-  // Small placement sound + dust
-  playTone(rand(180,320), 'triangle', 0.06, 0.08);
-  spawnBurst(new THREE.Vector3(b.x, b.y+b.sy*0.5, b.z), 0xccbbaa, 4, 2.5, 0.08, 0.35);
+  const batchSize = Math.min(3, _blockQueue.length);
+  for (let bi = 0; bi < batchSize; bi++) {
+    const b = _blockQueue.shift();
+    if (!b) break;
+    const geo = new THREE.BoxGeometry(b.sx, b.sy, b.sz);
+    const mesh = new THREE.Mesh(geo, b.mat);
+    mesh.position.set(b.x, b.y, b.z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.scale.setScalar(0.01);
+    scene.add(mesh);
+    const grow = () => {
+      mesh.scale.multiplyScalar(1.18);
+      if (mesh.scale.x < 1.0) requestAnimationFrame(grow);
+      else mesh.scale.setScalar(1.0);
+    };
+    requestAnimationFrame(grow);
+    if (bi === 0) {
+      playTone(rand(180,320), 'triangle', 0.06, 0.08);
+      spawnBurst(new THREE.Vector3(b.x, b.y+b.sy*0.5, b.z), 0xccbbaa, 4, 2.5, 0.08, 0.35);
+    }
+  }
 }
 
 function updateResourceUI() {
@@ -525,6 +540,364 @@ function updateResourceUI() {
   const w = document.getElementById('res-wood');
   if (s) s.textContent = resStone;
   if (w) w.textContent = resWood;
+}
+
+// ─── Architectural style generator ────────────────────────────────────────────
+
+function _b(blks, x, y, z, mat, sx=1, sy=1, sz=1) {
+  blks.push([x, y, z, mat, sx, sy, sz]);
+}
+
+// Solid filled box of blocks
+function _fillBox(blks, x0,y0,z0, x1,y1,z1, mat, hollow=false) {
+  for (let y=y0;y<=y1;y++) for (let x=x0;x<=x1;x++) for (let z=z0;z<=z1;z++) {
+    const edge = x===x0||x===x1||z===z0||z===z1||y===y0||y===y1;
+    if (!hollow || edge) _b(blks,x,y,z,mat);
+  }
+}
+
+// Ring of blocks at radius r, height y
+function _ring(blks, cx,cy,cz, r, mat, sx=1, sy=1, sz=1, step=1) {
+  const pts = Math.max(8, Math.floor(r*2*Math.PI/step));
+  for (let i=0;i<pts;i++) {
+    const a=i/pts*Math.PI*2;
+    _b(blks, cx+Math.cos(a)*r, cy, cz+Math.sin(a)*r, mat, sx,sy,sz);
+  }
+}
+
+// Column (vertical stack)
+function _col(blks, x,y0,z, height, mat, sx=1, sz=1) {
+  for (let y=y0;y<y0+height;y++) _b(blks,x,y+0.5,z,mat,sx,1,sz);
+}
+
+// Arch: two columns + keystone
+function _arch(blks, cx,y,cz, w, height, mat) {
+  _col(blks, cx-w*0.5, y, cz, height, mat, 1,1);
+  _col(blks, cx+w*0.5, y, cz, height, mat, 1,1);
+  _b(blks, cx, y+height+0.5, cz, mat, w+1, 1, 1.2);
+}
+
+function generateStructure(x, z, h, era, style) {
+  const blks = [];
+  const S = ARCH_STYLES[style % ARCH_STYLES.length];
+  const P = S.primary, SE = S.secondary, AC = S.accent, DK = S.dark;
+  const scale = 1 + era * 0.4 + rand(0, 0.5); // 1x–3.2x for era 0–5
+  const tall  = Math.floor(4 + era * 3 + rand(0, 4)); // base height 4–25
+  const wide  = Math.floor(3 + era * 2 + rand(0, 3)); // half-width 3–16
+
+  // Pick a building archetype based on style + randomness
+  const archetype = Math.floor(rand(0, 5)); // 0-4
+
+  if (S.name === 'Egyptian') {
+    if (archetype <= 1) {
+      // PYRAMID — large, hollow upper floors, gold cap
+      const levels = Math.floor(8 + era * 3 + rand(0, 5));
+      for (let L=0;L<levels;L++) {
+        const s = Math.floor((levels-L)/levels*(wide*2.5+2));
+        for (let dx=-s;dx<=s;dx++) for (let dz=-s;dz<=s;dz++) {
+          if (L===0||Math.abs(dx)===s||Math.abs(dz)===s)
+            _b(blks, x+dx*scale, h+L*1.4, z+dz*scale, L>levels*0.7?SE:P);
+        }
+      }
+      _b(blks, x, h+levels*1.4+0.6, z, AC, 2.5, 1.4, 2.5);
+      _b(blks, x, h+levels*1.4+2.2, z, AC, 1.4, 2.0, 1.4);
+      // Flanking obelisks
+      [-wide*scale-2, wide*scale+2].forEach(ox => {
+        _col(blks, x+ox, h, z, tall+4, P, 0.8, 0.8);
+        _b(blks, x+ox, h+tall+4.5, z, AC, 0.7, 1.8, 0.7);
+      });
+    } else if (archetype === 2) {
+      // SPHINX + temple approach
+      const templeW = wide+2;
+      // Avenue of sphinxes
+      for (let i=0;i<4+era;i++) {
+        const sx2 = x - templeW*scale + i*3.5*scale;
+        const sh = getTerrainHeight(sx2, z+templeW*scale);
+        _b(blks, sx2, sh+0.8, z+templeW*scale, P, 2.2, 1.6, 1.2);  // body
+        _b(blks, sx2+1.5, sh+1.5, z+templeW*scale, P, 1.2, 1.2, 1.2); // head
+      }
+      // Main pylon gate
+      [-wide*scale, wide*scale].forEach(ox => _col(blks, x+ox, h, z, tall+2, P, 2, 2.5));
+      _b(blks, x, h+tall+2.5, z, P, wide*scale*2+3, 1.5, 2.5); // lintel
+      // Obelisks
+      [-wide*scale*0.6, wide*scale*0.6].forEach(ox => {
+        _col(blks, x+ox, h, z-2, tall+5, P, 0.7, 0.7);
+        _b(blks, x+ox, h+tall+5.5, z-2, AC, 0.6, 1.6, 0.6);
+      });
+    } else {
+      // STEP MASTABA compound
+      const steps = 3+era;
+      for (let s=0;s<steps;s++) {
+        const sw = (steps-s)*(wide*0.7+1);
+        _fillBox(blks, x-sw, h+s*2, z-sw*0.6, x+sw, h+s*2+1.8, z+sw*0.6, s%2===0?P:SE, true);
+      }
+      _col(blks, x, h+steps*2, z, steps*2, AC, 1.2, 1.2);
+      _b(blks, x, h+steps*4+1, z, AC, 2, 1.5, 2);
+    }
+  }
+
+  else if (S.name === 'Roman' || S.name === 'Greek') {
+    if (archetype <= 1) {
+      // COLOSSEUM — elliptical ring arena
+      const R = wide*1.5+3;
+      const floors = 2+era;
+      const mat1 = P, mat2 = SE;
+      for (let f=0;f<floors;f++) {
+        const cols = Math.floor(R*2*Math.PI/3);
+        for (let i=0;i<cols;i++) {
+          const a=i/cols*Math.PI*2;
+          const bx=x+Math.cos(a)*R, bz=z+Math.sin(a)*R*0.72;
+          _col(blks, bx, h+f*(tall*0.4), bz, Math.floor(tall*0.35), i%3===1?mat2:mat1, 1.4,1.4);
+          if (i%3===1) _b(blks, bx, h+f*(tall*0.4)+tall*0.35+0.5, bz, mat1, 2.5, 1, 2.5);
+        }
+        // Floor ring
+        _b(blks, x, h+f*(tall*0.4)-0.2, z, mat2, R*2+2, 0.4, R*1.5);
+      }
+      // Imperial box
+      _col(blks, x, h, z-R*0.72-1, floors*Math.floor(tall*0.4)+2, AC, 3, 2);
+      _b(blks, x, h+floors*Math.floor(tall*0.4)+2.5, z-R*0.72-1, AC, 5, 1.4, 3);
+    } else if (archetype === 2) {
+      // PANTHEON — circular temple with dome
+      const R2 = wide+2;
+      const domeH = Math.floor(R2*0.7);
+      // Drum
+      _ring(blks, x, h, z, R2, P, 1.2, tall*0.5, 1.2, 1.5);
+      // Floor
+      _b(blks, x, h, z, SE, R2*2+1, 0.4, R2*2+1);
+      // Dome approximation (stacked rings of decreasing radius)
+      for (let dy=0;dy<domeH;dy++) {
+        const r2 = Math.sqrt(Math.max(0, R2*R2 - dy*dy*(R2/domeH)*(R2/domeH)));
+        _ring(blks, x, h+tall*0.5+dy, z, r2*0.88, dy%3===0?AC:P, 1.2, 1, 1.2, 1.5);
+      }
+      // Portico columns
+      const cols2 = 5+era;
+      for (let i=0;i<cols2;i++) {
+        const cx2 = x-((cols2-1)*0.5)*2.5+i*2.5;
+        _col(blks, cx2, h, z-R2-1, tall*0.6, P, 0.75, 0.75);
+        _b(blks, cx2, h+tall*0.6+0.4, z-R2-1, P, 0.9, 0.8, 0.9);
+      }
+      _b(blks, x, h+tall*0.6+1.2, z-R2-1, SE, cols2*2.5+1, 1, 2.5);
+      // Gold oculus
+      _b(blks, x, h+tall*0.5+domeH+0.5, z, AC, 2.5, 1, 2.5);
+    } else {
+      // FORUM — grand plaza with columns and triumphal arch
+      const plaza = wide+3;
+      _b(blks, x, h, z, SE, plaza*2, 0.35, plaza*1.6); // paving
+      // Colonnade rows
+      [-plaza+1, plaza-1].forEach(dx => {
+        for (let i=0;i<6+era;i++) {
+          const cz2=z-(3+era)*1.5+i*3;
+          _col(blks, x+dx*scale, h+0.35, cz2, tall, P, 0.8, 0.8);
+          _b(blks, x+dx*scale, h+0.35+tall+0.4, cz2, P, 1.2,1,1.2);
+        }
+      });
+      // Triumphal arch at end
+      _arch(blks, x, h, z+(3+era)*1.5+3, wide*0.6, tall+2, P);
+      _col(blks, x-wide*0.6-1.8, h, z+(3+era)*1.5+3, tall+3, SE, 1.8, 1.8);
+      _col(blks, x+wide*0.6+1.8, h, z+(3+era)*1.5+3, tall+3, SE, 1.8, 1.8);
+      _b(blks, x, h+tall+3.5, z+(3+era)*1.5+3, AC, wide*1.2+4, 1.5, 3);
+      // Central monument
+      _col(blks, x, h+0.35, z, tall+4, AC, 1.2, 1.2);
+      _b(blks, x, h+0.35+tall+4.5, z, AC, 2.5, 2.5, 2.5);
+    }
+  }
+
+  else if (S.name === 'Norse') {
+    if (archetype <= 1) {
+      // GREAT HALL — longhouse with dragon-head roof
+      const len = wide*2+4, w2 = wide+2, hh = Math.floor(tall*0.7);
+      // Walls
+      for (let dz=-len;dz<=len;dz++) {
+        [-w2, w2].forEach(dx => _col(blks, x+dx*scale, h, z+dz, hh, P, 1.5, 1));
+        // Interior columns every 3
+        if (Math.abs(dz)%3===0) [-w2*0.6, w2*0.6].forEach(dx => _col(blks, x+dx*scale, h, z+dz, hh+2, DK, 0.7, 0.7));
+      }
+      // Roof ridge
+      for (let dz=-len;dz<=len;dz++) _col(blks, x, h+hh+1, z+dz, 2, DK, 1,1);
+      // Sloped roof (stepped)
+      for (let s=0;s<w2;s++) {
+        for (let dz=-len;dz<=len;dz++) {
+          _b(blks, x+(w2-s)*scale, h+hh+s*0.8, z+dz, P, 1.5, 0.8, 1);
+          _b(blks, x-(w2-s)*scale, h+hh+s*0.8, z+dz, P, 1.5, 0.8, 1);
+        }
+      }
+      // Dragon heads at ends
+      [-len, len].forEach(dz => {
+        _b(blks, x, h+hh+2, z+dz+Math.sign(dz)*1, DK, 2.5, 2, 1.5);
+        _b(blks, x, h+hh+3.5, z+dz+Math.sign(dz)*2, DK, 1.5, 1.5, 1);
+        // Snout/jaw
+        _b(blks, x, h+hh+2.5, z+dz+Math.sign(dz)*3, P, 1.2, 1, 2);
+        // Eyes
+        _b(blks, x-0.7, h+hh+3.8, z+dz+Math.sign(dz)*1.5, AC, 0.5,0.5,0.5);
+        _b(blks, x+0.7, h+hh+3.8, z+dz+Math.sign(dz)*1.5, AC, 0.5,0.5,0.5);
+      });
+    } else {
+      // RUNESTONE CIRCLE + pyre tower
+      const R3 = wide*1.3+2;
+      const nStones = 8+era*2;
+      for (let i=0;i<nStones;i++) {
+        const a=i/nStones*Math.PI*2;
+        const sx3=x+Math.cos(a)*R3, sz3=z+Math.sin(a)*R3;
+        const sh=getTerrainHeight(sx3,sz3);
+        const ht=tall*0.5+rand(0,tall*0.3);
+        _col(blks, sx3, sh, sz3, ht, P, rand(0.8,1.4), rand(0.6,1.2));
+        if (i%2===0) { // Lintel pairs
+          const a2=(i+1)/nStones*Math.PI*2;
+          const mx=(Math.cos(a)+Math.cos(a2))*R3*0.5+x;
+          const mz=(Math.sin(a)+Math.sin(a2))*R3*0.5+z;
+          _b(blks, mx, sh+ht+0.4, mz, SE, 3,0.8,0.8);
+        }
+      }
+      // Inner fire tower
+      _col(blks, x, h, z, tall+6, DK, 1.5, 1.5);
+      _b(blks, x, h+tall+6.5, z, AC, 3, 1, 3);
+      _b(blks, x, h+tall+7.8, z, AC, 1.5, 1.5, 1.5);
+    }
+  }
+
+  else if (S.name === 'Gothic') {
+    // GOTHIC CATHEDRAL — tall pointed spires, flying buttresses
+    const navH = tall+3, navW = wide+2, navL = wide*1.8+4;
+    // Nave walls with pointed arches
+    [-navW, navW].forEach(dx => {
+      for (let dz=-navL;dz<=navL;dz+=3) {
+        _col(blks, x+dx*scale, h, z+dz, navH, P, 1.6, 1);
+        // Pointed arch tops
+        _b(blks, x+dx*scale, h+navH+0.4, z+dz, P, 1.6, 1.2, 1);
+        _b(blks, x+dx*scale, h+navH+1.5, z+dz, AC, 0.7, 1, 0.7);
+      }
+    });
+    // Roof spine
+    for (let dz=-navL;dz<=navL;dz++) _b(blks, x, h+navH+2, z+dz, DK, navW*0.4*scale, 0.8, 1);
+    // Twin front towers
+    [-navW*0.8*scale, navW*0.8*scale].forEach(dx => {
+      _col(blks, x+dx, h, z-navL-1, navH+tall*0.5+3, DK, 2, 2);
+      // Spire
+      for (let s=0;s<tall*0.5+4;s++) {
+        const r2=(tall*0.5+4-s)/(tall*0.5+4)*1.2;
+        _b(blks, x+dx, h+navH+tall*0.5+3+s, z-navL-1, DK, r2*2,1,r2*2);
+      }
+      _b(blks, x+dx, h+navH+tall+7.5, z-navL-1, AC, 0.7,1.8,0.7);
+    });
+    // Rose window (crystal)
+    _b(blks, x, h+navH*0.55, z-navL-0.3, AC, navW*0.8*scale, navW*0.8*scale, 0.3);
+    _b(blks, x, h+navH*0.55, z-navL-0.5, DK, navW*0.5*scale, navW*0.5*scale, 0.3);
+    // Flying buttresses
+    for (let dz=-navL+2;dz<=navL-2;dz+=5) {
+      [-1,1].forEach(side => {
+        for (let s=0;s<4;s++) _b(blks, x+(navW+s)*scale*side, h+navH-s*1.5, z+dz, SE, 1,1,1);
+        _b(blks, x+(navW+4)*scale*side, h+navH-6, z+dz, SE, 0.8, tall*0.15, 0.8);
+      });
+    }
+  }
+
+  else if (S.name === 'Mayan') {
+    // STEP PYRAMID — steep with temple on top
+    const levels2 = 6+era*2;
+    for (let L=0;L<levels2;L++) {
+      const s = Math.round((levels2-L)/(levels2)*(wide*1.8+2));
+      // Solid level platform
+      _fillBox(blks, x-s, h+L*2.2, z-s*0.75, x+s, h+L*2.2+2, z+s*0.75, L%2===0?P:SE, true);
+    }
+    // Temple on top
+    const topY = h+levels2*2.2+2;
+    _fillBox(blks, x-3, topY, z-2, x+3, topY+tall*0.3, z+2, DK, true);
+    _b(blks, x, topY+tall*0.3+0.5, z, AC, 6.5, 1, 4.5); // roof slab
+    // Flanking skull pillars
+    [-wide*scale-1, wide*scale+1].forEach(ox => {
+      _col(blks, x+ox, h, z, levels2*2.2+tall*0.4, P, 1.2,1.2);
+      _b(blks, x+ox, h+levels2*2.2+tall*0.4+0.5, z, DK, 2,2,2); // skull cap
+    });
+  }
+
+  else if (S.name === 'Futuristic') {
+    if (archetype <= 1) {
+      // ARCOLOGY — megastructure tower with floating levels
+      const coreH = tall*2+8;
+      // Core spire
+      _col(blks, x, h, z, coreH, DK, 1.5, 1.5);
+      // Floating platforms at intervals
+      const numPlatforms = 3+era;
+      for (let i=0;i<numPlatforms;i++) {
+        const py = h + (i+1)*coreH/(numPlatforms+1);
+        const pr = 3+era+(i%2)*2;
+        // Platform disk
+        _ring(blks, x, py, z, pr, P, 1.2, 0.6, 1.2, 1);
+        _b(blks, x, py, z, SE, pr*0.8, 0.4, pr*0.8); // fill
+        // Sub-spires on each platform
+        for (let j=0;j<4;j++) {
+          const a=j/4*Math.PI*2;
+          _col(blks, x+Math.cos(a)*pr*0.7, py+0.5, z+Math.sin(a)*pr*0.7, 3+i, AC, 0.5, 0.5);
+        }
+      }
+      // Cap
+      _b(blks, x, h+coreH+0.6, z, AC, 3.5, 1.5, 3.5);
+      _b(blks, x, h+coreH+2.5, z, AC, 1.5, 3, 1.5);
+    } else {
+      // DYSON NODE — hexagonal energy collector
+      const hexR = wide+3;
+      // Hex ring
+      for (let i=0;i<6;i++) {
+        const a=i/6*Math.PI*2;
+        const hx=x+Math.cos(a)*hexR, hz=z+Math.sin(a)*hexR;
+        _col(blks, hx, h, hz, tall, P, 1.8, 1.8);
+        _col(blks, hx, h+tall+1, hz, Math.floor(tall*0.5), AC, 0.7, 0.7);
+        // Connect to center
+        const steps2=Math.floor(hexR*0.7);
+        for(let s=0;s<steps2;s++){
+          _b(blks, x+(hx-x)*s/steps2, h+tall*0.4, z+(hz-z)*s/steps2, SE, 0.8,0.5,0.8);
+        }
+      }
+      // Central energy core
+      _col(blks, x, h, z, tall+4, DK, 2, 2);
+      _b(blks, x, h+tall+4.5, z, AC, 4, 2, 4);
+      _b(blks, x, h+tall+6.8, z, AC, 2, 2, 2);
+    }
+  }
+
+  else if (S.name === 'Alien') {
+    // NON-EUCLIDEAN STRUCTURE — asymmetric, crystalline
+    const branches = 3+era;
+    // Central bio-crystal
+    for (let y=0;y<tall+3;y++) {
+      const twist = y*0.15;
+      const w3 = Math.max(0.5, (tall+3-y)/(tall+3)*wide*0.6+1);
+      _b(blks, x+Math.sin(twist)*2, h+y+0.5, z+Math.cos(twist)*2, DK, w3, 1, w3);
+    }
+    _col(blks, x, h+tall+3, z, 5, AC, 1.5, 1.5);
+    // Radiating crystal arms (each different length/angle)
+    for (let i=0;i<branches;i++) {
+      const a = i/branches*Math.PI*2+rand(0,0.5);
+      const armLen = Math.floor(wide*0.9+rand(2,wide));
+      const armH = h+tall*rand(0.2,0.8);
+      for (let s=0;s<armLen;s++) {
+        const ax=x+Math.cos(a)*s*1.2, az=z+Math.sin(a)*s*1.2;
+        const curve = Math.sin(s/armLen*Math.PI)*3;
+        _b(blks, ax, armH+curve, az, s<armLen*0.5?DK:AC, rand(0.7,1.3), rand(0.5,1.2), rand(0.7,1.3));
+      }
+      // Crystal tips
+      _b(blks, x+Math.cos(a)*armLen*1.2, armH+3, z+Math.sin(a)*armLen*1.2, AC, 1.5, rand(2,4), 1.5);
+    }
+    // Floating satellite nodes
+    for (let i=0;i<2+era;i++) {
+      const sa=Math.random()*Math.PI*2, sr=wide*0.7+rand(2,4);
+      const sy=h+tall*rand(0.3,0.9);
+      _b(blks, x+Math.cos(sa)*sr, sy, z+Math.sin(sa)*sr, AC, rand(2,3.5), rand(2,3.5), rand(2,3.5));
+      // Thin support column
+      _col(blks, x+Math.cos(sa)*sr, h, z+Math.sin(sa)*sr, sy-h, DK, 0.3, 0.3);
+    }
+  }
+
+  else {
+    // Fallback: elegant stone tower
+    for (let y=0;y<tall+6;y++) {
+      const t=lerp(1.0,0.5,y/(tall+6));
+      _b(blks, x, h+y+0.5, z, P, t*wide*0.8, 1, t*wide*0.8);
+    }
+    _b(blks, x, h+tall+7, z, AC, wide*0.5, 1.5, wide*0.5);
+  }
+
+  return blks;
 }
 
 // ─── Civilization & time ──────────────────────────────────────────────────────
@@ -2321,6 +2694,7 @@ function castMiracleAt(type, pos, fromPlayer = true) {
 
 function castFireball(targetPos, fromPlayer) {
   playFireball();
+  shakeCamera(0.8);
   if (fromPlayer) changeAlignment(-0.12);
   // Damage rival god if targeted near its totem
   if (fromPlayer && rivalGod && !rivalGod.defeated) {
@@ -2531,6 +2905,7 @@ function _doLightning() {
   window._lightningDiv.style.transition='none';
   window._lightningDiv.style.opacity='0.45';
   playTone(55,'sawtooth',0.9,0.28);
+  shakeCamera(1.5);
   setTimeout(()=>{ window._lightningDiv.style.transition='opacity 0.15s'; window._lightningDiv.style.opacity='0'; },60);
   if (trees.length>0 && Math.random()<0.3) igniteObject(trees[Math.floor(Math.random()*trees.length)]);
   for(const v of villagers){ if(!v.alive) continue; v.fear=Math.min(1,v.fear+0.5); v.state='flee'; }
@@ -2767,8 +3142,9 @@ function updateProjectiles(dt) {
     const hitGround = p.position.y <= h + 0.5;
     const hitWater  = p.position.y <= SEA_LEVEL && Math.sqrt(p.position.x**2 + p.position.z**2) > ISLAND_RADIUS * 0.85;
     if (hitGround || hitWater) {
-      spawnBurst(p.position, 0xff4400, 40, 12, 0.3, 1.8);
-      spawnBurst(p.position, 0xffcc00, 20, 8, 0.18, 1.0);
+      spawnBurst(p.position, 0xff4400, 80, 16, 0.38, 2.8);
+      spawnBurst(p.position, 0xffcc00, 45, 10, 0.22, 1.8);
+      shakeCamera(2.2);
       // Scare/damage nearby villagers
       for (const vill of villagers) {
         if (!vill.alive) continue;
@@ -2865,7 +3241,7 @@ function showMiracleFlash(text, color) {
   el.style.color = color;
   el.style.textShadow = `0 0 20px ${color}`;
   el.style.opacity = '1';
-  setTimeout(() => { el.style.opacity = '0'; }, 1400);
+  setTimeout(() => { el.style.opacity = '0'; }, 2000);
 }
 
 // ─── Raycasting ───────────────────────────────────────────────────────────────
@@ -3334,8 +3710,8 @@ function updateCivilization(dt) {
   // Creature autonomous building
   nextBuildTimer -= dt;
   if (nextBuildTimer <= 0) {
-    nextBuildTimer = rand(25, 55);
-    if (creatures.length > 0 && alignment > -0.2) considerBuilding();
+    nextBuildTimer = rand(12, 28);
+    if (alignment > -0.3) considerBuilding();
   }
 }
 
@@ -3345,7 +3721,7 @@ function tooCloseToBuilding(x, z, minDist) {
 }
 
 function considerBuilding() {
-  const maxPerEra = [2, 4, 6, 8, 10, 14];
+  const maxPerEra = [4, 8, 12, 18, 24, 35];
   if (eraBuildings.length >= (maxPerEra[civilizationEra] || 14)) return;
 
   // Pool of available structure types per era
@@ -3360,7 +3736,7 @@ function considerBuilding() {
   const type = pool[Math.floor(Math.random() * pool.length)];
 
   for (let attempt = 0; attempt < 20; attempt++) {
-    const r = rand(16, 45 + civilizationEra * 8);
+    const r = rand(14, 55 + civilizationEra * 12);
     const a = Math.random() * Math.PI * 2;
     const x = VILLAGE_POS.x + Math.cos(a) * r;
     const z = VILLAGE_POS.z + Math.sin(a) * r;
@@ -3372,23 +3748,7 @@ function considerBuilding() {
   }
 }
 
-// ─── Voxel structure definitions ──────────────────────────────────────────────
-function _voxStoneCircle(x, z, h) {
-  const blks = [], n=12, r=rand(6,9);
-  for (let i=0;i<n;i++) {
-    const a=(i/n)*Math.PI*2, cx=x+Math.cos(a)*r, cz=z+Math.sin(a)*r;
-    const ch=getTerrainHeight(cx,cz);
-    const ht=Math.floor(rand(2,4));
-    for (let y=0;y<ht;y++) blks.push([cx,ch+y*1.1+0.5,cz,'cobble',rand(0.8,1.1),1.1,rand(0.7,1.0)]);
-    // Lintels every other stone
-    if (i%2===0) {
-      const la=(i+0.5)/n*Math.PI*2;
-      const lx=x+Math.cos(la)*r, lz=z+Math.sin(la)*r;
-      blks.push([lx,ch+ht*1.1+0.3,lz,'stone',2.5,0.45,0.7]);
-    }
-  }
-  return blks;
-}
+// ─── Voxel structure definitions (legacy stubs replaced by generateStructure) ─
 
 function _voxTotemPole(x, z, h) {
   const blks=[];
@@ -3583,27 +3943,32 @@ const STRUCTURES = {
 };
 
 function scheduleConstruction(type, x, z, h) {
-  showMiracleFlash('Building…', '#88aaff');
+  const styleIdx = _styleIndex % ARCH_STYLES.length;
+  _styleIndex++;
+  const styleName = ARCH_STYLES[styleIdx].name;
+  showMiracleFlash(`Building ${styleName} ${type}…`, '#88aaff');
   spawnBurst(v3(x,h+1,z), 0x88aaff, 14, 4, 0.18, 1.5);
-  const delay = rand(2000, 5500);
+  const delay = rand(400, 1200);
   setTimeout(()=>{
-    const buildFn = STRUCTURES[type];
-    if (!buildFn) return;
-    const voxels = buildFn(x, z, h);
+    // Try generateStructure first; fall back to legacy STRUCTURES dispatch
+    let voxels = generateStructure(x, z, h, civilizationEra, styleIdx);
+    if (!voxels || voxels.length === 0) {
+      const buildFn = STRUCTURES[type];
+      if (!buildFn) return;
+      voxels = buildFn(x, z, h);
+    }
     if (!voxels || voxels.length===0) return;
-    // Sort bottom-to-top so construction goes up
     voxels.sort((a,b)=>a[1]-b[1]);
-    // Queue all blocks
     voxels.forEach(([bx,by,bz,matKey,sx=1,sy=1,sz=1])=>{
       queueBlock(bx, by, bz, window.BLK[matKey] || window.BLK.stone, sx, sy, sz);
     });
-    // Celebration when last block would be placed
-    const celebDelay = voxels.length * BLOCK_INTERVAL * 1000 + 600;
+    const celebDelay = Math.min(voxels.length * BLOCK_INTERVAL * 1000 / 3 + 600, 8000);
     setTimeout(()=>{
-      spawnBurst(v3(x,h+5,z), 0xffcc44, 38, 9, 0.26, 2.5);
-      showMiracleFlash(`${type} complete!`, '#ffcc44');
-      changeAlignment(0.03);
-      creatures.forEach(c=>c.gainExperience(18));
+      spawnBurst(v3(x,h+8,z), 0xffcc44, 45, 10, 0.28, 3.0);
+      showMiracleFlash(`✦ ${styleName} ${type} complete!`, '#ffcc44');
+      playTone(330,'triangle',0.8,0.22);
+      changeAlignment(0.04);
+      creatures.forEach(c=>c.gainExperience(22));
     }, celebDelay);
   }, delay);
 }
@@ -3802,9 +4167,281 @@ function initRivalGod() {
 
 // ─── Tutorial fade ─────────────────────────────────────────────────────────────
 function initTutorial() {
-  setTimeout(() => {
-    document.getElementById('tutorial').style.opacity = '0';
-  }, 5000);
+  const tut = document.getElementById('tutorial');
+  if (!tut) return;
+
+  // Step 1 — title screen
+  tut.innerHTML = `<h1>Black &amp; White</h1><p style="font-size:16px;letter-spacing:2px;margin-top:8px;">You are a God. Shape the world.</p>`;
+  tut.style.opacity = '1';
+
+  // Auto-sequence of hints
+  const hints = [
+    [4000,  `<h1 style="font-size:28px">Your Village Awaits</h1><p>Move your hand · Click &amp; drag to pick up objects</p>`],
+    [7000,  `<h1 style="font-size:26px">Cast Miracles</h1><p>Press <b>1</b>=Fireball &nbsp; <b>2</b>=Food &nbsp; <b>3</b>=Heal &nbsp; <b>4</b>=Wood</p>`],
+    [10500, `<h1 style="font-size:26px">A Rival Stirs…</h1><p style="color:#ff8888">Another god watches from the shadows</p>`],
+    [13500, null],  // fade out
+  ];
+
+  hints.forEach(([delay, html]) => {
+    setTimeout(()=>{
+      if (html) {
+        tut.innerHTML = html;
+        tut.style.transition = 'opacity 0.6s';
+        tut.style.opacity = '1';
+      } else {
+        tut.style.transition = 'opacity 1.5s';
+        tut.style.opacity = '0';
+      }
+    }, delay);
+  });
+
+  // Rival taunts soon after game start
+  setTimeout(()=>{
+    if (rivalGod && !rivalGod.defeated) {
+      showMiracleFlash('⚔ Rival God: "Your people will be MINE!"', '#ff4466');
+      spawnBurst(new THREE.Vector3(RIVAL_POS.x,getTerrainHeight(RIVAL_POS.x,RIVAL_POS.z)+5,RIVAL_POS.z), 0xaa0022, 30, 10, 0.3, 2.5);
+      playTone(60,'sawtooth',1.2,0.2);
+      shakeCamera(1.0);
+    }
+  }, 12000);
+
+  // First rival attack faster — 20-30s instead of 50-80s
+  if (rivalGod) rivalGod.attackTimer = rand(18, 28);
+}
+
+// ─── Mini-map ─────────────────────────────────────────────────────────────────
+let _minimapTimer = 0;
+function updateMinimap(dt) {
+  _minimapTimer -= dt;
+  if (_minimapTimer > 0) return;
+  _minimapTimer = 0.25;
+
+  const canvas = document.getElementById('minimap');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = 140, H = 140, cx = W*0.5, cy = H*0.5;
+  const R = cx - 2;
+  const scale = R / (ISLAND_RADIUS * 1.05);
+
+  // Clip to circle
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.clip();
+
+  // Ocean
+  ctx.fillStyle = '#0a1e4a'; ctx.fillRect(0,0,W,H);
+
+  // Island gradient
+  const ig = ctx.createRadialGradient(cx,cy,0,cx,cy,R*0.88);
+  ig.addColorStop(0,'#3a7a20'); ig.addColorStop(0.55,'#4a8e28');
+  ig.addColorStop(0.78,'#c8b060'); ig.addColorStop(1,'#0a1e4a');
+  ctx.fillStyle = ig;
+  ctx.beginPath(); ctx.arc(cx,cy,R*0.88,0,Math.PI*2); ctx.fill();
+
+  const px = (wx,wz) => [cx+wx*scale, cy+wz*scale];
+
+  // Era buildings (small gray squares)
+  for (const b of eraBuildings) {
+    const [bx,by] = px(b.x,b.z);
+    ctx.fillStyle='rgba(220,210,180,0.6)';
+    ctx.fillRect(bx-1.5,by-1.5,3,3);
+  }
+
+  // Village
+  const [vx,vy] = px(VILLAGE_POS.x,VILLAGE_POS.z);
+  ctx.fillStyle='#ffdd44';
+  ctx.beginPath(); ctx.arc(vx,vy,5,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(255,220,0,0.5)'; ctx.lineWidth=1;
+  // Influence ring
+  ctx.beginPath(); ctx.arc(vx,vy,influenceRadius*scale,0,Math.PI*2); ctx.stroke();
+
+  // Rival god
+  if (rivalGod && !rivalGod.defeated) {
+    const [rx,ry] = px(RIVAL_POS.x,RIVAL_POS.z);
+    ctx.fillStyle='#ff2244';
+    ctx.beginPath(); ctx.arc(rx,ry,5,0,Math.PI*2); ctx.fill();
+  }
+
+  // Creatures (green dots)
+  for (const c of creatures) {
+    const [cx2,cy2] = px(c.group.position.x,c.group.position.z);
+    ctx.fillStyle='#44ffaa';
+    ctx.beginPath(); ctx.arc(cx2,cy2,3.5,0,Math.PI*2); ctx.fill();
+  }
+
+  // Villagers (tiny white)
+  for (const v of villagers) {
+    if (!v.alive) continue;
+    const [vvx,vvy] = px(v.mesh.position.x,v.mesh.position.z);
+    ctx.fillStyle='rgba(255,255,200,0.75)';
+    ctx.beginPath(); ctx.arc(vvx,vvy,1.8,0,Math.PI*2); ctx.fill();
+  }
+
+  // Camera target crosshair
+  const [tx,ty] = px(camTarget.x,camTarget.z);
+  ctx.strokeStyle='rgba(255,255,255,0.45)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(tx-5,ty); ctx.lineTo(tx+5,ty);
+  ctx.moveTo(tx,ty-5); ctx.lineTo(tx,ty+5); ctx.stroke();
+
+  ctx.restore();
+
+  // Border
+  ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.stroke();
+}
+
+// ─── Objectives ───────────────────────────────────────────────────────────────
+function updateObjective() {
+  const el = document.getElementById('objective-text');
+  if (!el) return;
+  const hungry = villagers.filter(v=>v.alive&&v.hunger>0.6).length;
+  const alive  = villagers.filter(v=>v.alive).length;
+  const dead   = villagers.filter(v=>!v.alive).length;
+  if (rivalGod && !rivalGod.defeated && rivalGod.faith > 80)
+    el.textContent = '⚔ Rival attacks soon — cast Fireball at its totem!';
+  else if (dead > 2)
+    el.textContent = `💀 ${dead} dead — cast Heal+Wood to resurrect them`;
+  else if (hungry > 3)
+    el.textContent = `🍎 ${hungry} villagers hungry — cast Food (2)`;
+  else if (_weatherType === 'storm')
+    el.textContent = '⛈ Storm raging — seek shelter or cast Heal';
+  else if (faithPoints < 80)
+    el.textContent = '🙏 Keep villagers fed to grow your Faith';
+  else if (civilizationEra < 2)
+    el.textContent = '🏗 Creatures are building — reward them with ⭐';
+  else if (creatures.length > 0 && creatures[0].intelligenceLevel < 3)
+    el.textContent = '🧠 Reward your creature to level it up';
+  else if (rivalGod && !rivalGod.defeated)
+    el.textContent = '⚔ Cast Fireball at the dark totem to defeat the Rival!';
+  else
+    el.textContent = '✦ Advance your civilization — cast miracles & grow';
+}
+
+// ─── Random events ────────────────────────────────────────────────────────────
+function fireRandomEvent() {
+  const era = civilizationEra;
+  const pool = [];
+
+  // Always available
+  pool.push('meteor_shower', 'rival_taunt', 'bountiful_harvest', 'creature_frenzy');
+  if (era >= 1) pool.push('plague', 'gold_rain');
+  if (era >= 2) pool.push('earthquake', 'mass_prayer');
+  if (era >= 3) pool.push('divine_light', 'dark_storm');
+
+  const event = pool[Math.floor(Math.random() * pool.length)];
+
+  switch(event) {
+    case 'meteor_shower':
+      showMiracleFlash('☄ Meteor Shower!', '#ffaa44');
+      playTone(80,'sawtooth',0.4,0.2);
+      for(let i=0;i<5;i++) setTimeout(()=>{
+        const tx=rand(-60,60), tz=rand(-60,60);
+        const tgt=new THREE.Vector3(tx,getTerrainHeight(tx,tz),tz);
+        castFireball(tgt, false);
+        shakeCamera(1.2);
+      }, i*800);
+      break;
+
+    case 'rival_taunt':
+      if (rivalGod && !rivalGod.defeated) {
+        const taunts = [
+          '"Your puny village amuses me."',
+          '"My power grows while yours fades!"',
+          '"Surrender now and I will be merciful."',
+          '"Your creature is nothing compared to mine!"',
+        ];
+        showMiracleFlash('⚔ Rival: ' + taunts[Math.floor(Math.random()*taunts.length)], '#ff6688');
+        playTone(55,'sawtooth',0.6,0.15);
+        spawnBurst(new THREE.Vector3(RIVAL_POS.x, getTerrainHeight(RIVAL_POS.x,RIVAL_POS.z)+6, RIVAL_POS.z), 0xaa0022, 25, 9, 0.28, 2.0);
+      } else {
+        pool.push('bountiful_harvest');
+        fireRandomEvent();
+      }
+      break;
+
+    case 'bountiful_harvest': {
+      showMiracleFlash('🌾 Bountiful Harvest!', '#ffdd44');
+      const harvestPos = VILLAGE_POS.clone().add(v3(rand(-10,10),0,rand(-10,10)));
+      for(let i=0;i<4;i++) setTimeout(()=>{
+        spawnFood(harvestPos.clone().add(v3(rand(-6,6),0,rand(-6,6))));
+        spawnBurst(harvestPos,0xffcc44,15,6,0.22,1.2);
+      }, i*400);
+      changeAlignment(0.08);
+      break;
+    }
+
+    case 'creature_frenzy':
+      showMiracleFlash('✨ Creature Awakening!', '#44ffcc');
+      creatures.forEach(c=>{
+        c.gainExperience(30);
+        c._pulse(0x44ffcc);
+        spawnBurst(c.group.position.clone().add(v3(0,2,0)),0x44ffcc,25,8,0.22,1.8);
+      });
+      playTone(440,'sine',0.5,0.2); setTimeout(()=>playTone(660,'sine',0.4,0.18),200);
+      break;
+
+    case 'plague':
+      showMiracleFlash('☠ Plague Spreads!', '#88ff44');
+      for(const v of villagers){
+        if(!v.alive||Math.random()>0.4) continue;
+        v.hunger=Math.min(1,v.hunger+0.5);
+        v.fear=Math.min(1,v.fear+0.3);
+        spawnBurst(v.mesh.position.clone().add(v3(0,1,0)),0x88aa22,8,3,0.12,0.8);
+      }
+      changeAlignment(-0.05);
+      break;
+
+    case 'gold_rain': {
+      showMiracleFlash('✦ Gold Rain! Faith ×2', '#ffd700');
+      faithPoints += 60; updateFaithUI();
+      for(let i=0;i<20;i++) setTimeout(()=>{
+        const gx=VILLAGE_POS.x+rand(-18,18), gz=VILLAGE_POS.z+rand(-18,18);
+        spawnBurst(new THREE.Vector3(gx,30,gz),0xffd700,8,10,0.2,1.5);
+      }, i*120);
+      changeAlignment(0.06);
+      playTone(528,'sine',0.8,0.2);
+      break;
+    }
+
+    case 'earthquake':
+      showMiracleFlash('🌋 Earthquake!', '#ff8844');
+      shakeCamera(4.0);
+      setTimeout(()=>shakeCamera(3.0), 500);
+      setTimeout(()=>shakeCamera(2.0), 1000);
+      // Knock some trees over
+      for(let i=0;i<3;i++) if(trees.length>0) {
+        const t=trees[Math.floor(Math.random()*trees.length)];
+        setTimeout(()=>felTree(t,false), i*600);
+      }
+      playTone(40,'sawtooth',2.0,0.35);
+      break;
+
+    case 'mass_prayer':
+      showMiracleFlash('🙏 Mass Prayer — Faith Surge!', '#aaccff');
+      faithPoints += 80; updateFaithUI();
+      for(const v of villagers) if(v.alive) spawnPrayer(v);
+      changeAlignment(0.12);
+      playTone(396,'sine',1.0,0.18);
+      break;
+
+    case 'divine_light':
+      showMiracleFlash('✦ Divine Light Descends!', '#fffacc');
+      for(const v of villagers){if(!v.alive) continue; v.hunger=0; v.fear=0;}
+      spawnBurst(VILLAGE_POS.clone().add(v3(0,15,0)),0xfffff0,80,18,0.35,4.0);
+      changeAlignment(0.2);
+      faithPoints+=100; updateFaithUI();
+      playTone(528,'sine',1.5,0.25); setTimeout(()=>playTone(660,'sine',1.2,0.2),300);
+      shakeCamera(0.5);
+      break;
+
+    case 'dark_storm':
+      if(_weatherType!=='storm') {
+        _weatherType='storm'; _weatherTimer=0; _weatherNextChange=rand(40,70);
+        showMiracleFlash('⛈ Dark Storm Unleashed!', '#cc44ff');
+        shakeCamera(2.5);
+        changeAlignment(-0.1);
+      }
+      break;
+  }
 }
 
 // ─── Main game loop ──────────────────────────────────────────────────────────
@@ -3829,12 +4466,14 @@ function gameLoop() {
   if (window._totemLight) window._totemLight.intensity = 3.0 + Math.sin(elapsed * 2.2) * 0.8;
 
   // Campfire flicker
-  if (window._flames) window._flames.forEach((f, i) => {
-    f.scale.y = 1.3 + Math.sin(elapsed * 5.5 + i * 1.7) * 0.45;
-    f.scale.x = 0.8 + Math.sin(elapsed * 4.2 + i * 2.3) * 0.22;
-  });
   if (window._fireLights) window._fireLights.forEach((l, i) => {
-    l.intensity = 2.4 + Math.sin(elapsed * 6.1 + i * 1.9) * 0.9;
+    l.intensity = 3.2 + Math.sin(elapsed * 7.2 + i * 1.9) * 1.4 + Math.sin(elapsed * 13.1 + i) * 0.5;
+    l.color.setRGB(1.0, 0.38 + Math.random()*0.08, 0.06);
+  });
+  if (window._flames) window._flames.forEach((f, i) => {
+    f.scale.y = 1.4 + Math.sin(elapsed * 6.2 + i * 1.7) * 0.6;
+    f.scale.x = 0.7 + Math.sin(elapsed * 4.8 + i * 2.3) * 0.3;
+    f.material.emissiveIntensity = 2.0 + Math.sin(elapsed * 8.0 + i) * 0.5;
   });
 
   // Clouds drift
@@ -3868,6 +4507,7 @@ function gameLoop() {
 
   // Faith
   updateFaith(dt);
+  _objTimer -= dt; if (_objTimer <= 0) { _objTimer = 2; updateObjective(); }
 
   // Ambient sprites
   updateAmbientSprites(elapsed);
@@ -3875,8 +4515,14 @@ function gameLoop() {
   updateWeather(dt);
   // Prayers
   updatePrayers(dt);
+  // Mini-map
+  updateMinimap(dt);
   // Rival god
   if (rivalGod) rivalGod.update(dt);
+
+  // Random events
+  _eventTimer -= dt;
+  if (_eventTimer <= 0) { _eventTimer = rand(55, 110); fireRandomEvent(); }
 
   // Hand bobbing
   if (godHand && !grabbedObject) {
@@ -3886,6 +4532,17 @@ function gameLoop() {
 
   // Gesture trail
   drawGestureTrail();
+
+  // Hover highlight
+  updateHoverHighlight();
+
+  // Screen shake
+  if (_camShake > 0.02) {
+    camera.position.x += (Math.random()-0.5)*_camShake;
+    camera.position.y += (Math.random()-0.5)*_camShake*0.3;
+    camera.position.z += (Math.random()-0.5)*_camShake;
+    _camShake *= 0.82;
+  }
 
   if (composer) composer.render();
   else renderer.render(scene, camera);
