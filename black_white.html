@@ -202,6 +202,16 @@ canvas { display: block; }
 </head>
 <body>
 
+<!-- Loading screen shown before JS runs -->
+<div id="loading-screen" style="position:fixed;inset:0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;pointer-events:none;">
+  <div style="font-family:Georgia,serif;color:#fff;font-size:38px;letter-spacing:8px;text-transform:uppercase;margin-bottom:16px;opacity:0.9;">Black &amp; White</div>
+  <div style="color:rgba(255,255,255,0.5);font-size:13px;letter-spacing:3px;margin-bottom:32px;">Loading…</div>
+  <div style="width:180px;height:2px;background:rgba(255,255,255,0.15);border-radius:2px;overflow:hidden;">
+    <div id="load-bar" style="height:100%;width:0%;background:rgba(255,220,100,0.8);transition:width 0.3s ease;"></div>
+  </div>
+  <div id="load-status" style="color:rgba(255,255,255,0.35);font-size:11px;letter-spacing:2px;margin-top:14px;">Initializing…</div>
+</div>
+
 <div id="ui">
   <div id="tutorial">
     <h1>Black &amp; White</h1>
@@ -304,6 +314,13 @@ canvas { display: block; }
 <script src="lib/SSAOPass.js"></script>
 
 <script>
+
+function setLoadProgress(pct, label) {
+  const bar = document.getElementById('load-bar');
+  const st  = document.getElementById('load-status');
+  if (bar) bar.style.width = pct + '%';
+  if (st && label) st.textContent = label;
+}
 
 // ─── Noise ───────────────────────────────────────────────────────────────────
 function noise2D(x, z) {
@@ -3698,7 +3715,8 @@ function updateCivilization(dt) {
   // Update HUD
   const eraEl = document.getElementById('civ-era');
   const timeEl = document.getElementById('civ-time');
-  if (eraEl) eraEl.textContent = ERAS[civilizationEra].name.toUpperCase();
+  const currentStyle = ARCH_STYLES[_styleIndex % ARCH_STYLES.length];
+  if (eraEl) eraEl.textContent = ERAS[civilizationEra].name.toUpperCase() + ' · ' + currentStyle.name;
   if (timeEl) {
     const day  = Math.floor(gameTime / 200) + 1;
     const h    = Math.sin(sunAngle - Math.PI * 0.5);
@@ -3750,223 +3768,35 @@ function considerBuilding() {
 
 // ─── Voxel structure definitions (legacy stubs replaced by generateStructure) ─
 
-function _voxTotemPole(x, z, h) {
-  const blks=[];
-  const H=12;
-  for(let y=0;y<H;y++) blks.push([x,h+y*0.95+0.5,z,'wood',1.0,0.95,1.0]);
-  [1.8,4.2,7.0,9.8].forEach((fy,i)=>{
-    blks.push([x,h+fy+0.5,z+0.65,'plank',1.8,1.4,0.6]);
-    if(i%2===0) blks.push([x,h+fy+0.9,z,'plank',3.2,0.5,0.5]);
-  });
-  return blks;
-}
-
-function _voxPalisade(x, z, h) {
-  const blks=[], len=Math.floor(rand(10,18)), posts=Math.floor(len/1.5);
-  for(let i=0;i<posts;i++){
-    const px=x+(i-posts/2)*1.5, ph=getTerrainHeight(px,z);
-    const ht=Math.floor(rand(3,5));
-    for(let y=0;y<ht;y++) blks.push([px,ph+y*0.95+0.5,z,'wood',0.7,0.95,0.7]);
-    // Pointed top
-    blks.push([px,ph+ht*0.95+0.55,z,'wood',0.45,0.7,0.45]);
-  }
-  return blks;
-}
-
-function _voxWell(x, z, h) {
-  const blks=[];
-  for(let i=0;i<8;i++){
-    const a=i/8*Math.PI*2, wx=x+Math.cos(a)*1.3, wz=z+Math.sin(a)*1.3;
-    blks.push([wx,h+0.55,wz,'stone',0.7,1.1,0.7]);
-    blks.push([wx,h+1.65,wz,'stone',0.7,1.1,0.7]);
-  }
-  blks.push([x,h+0.1,z,'cobble',2.8,0.2,2.8]); // base
-  blks.push([x-1.2,h+2.7,z,'wood',0.2,2.8,0.2]);
-  blks.push([x+1.2,h+2.7,z,'wood',0.2,2.8,0.2]);
-  blks.push([x,h+3.5,z,'wood',2.8,0.2,0.2]);
-  return blks;
-}
-
-function _voxFarm(x, z, h) {
-  const blks=[];
-  // Tilled soil rows (flat brown blocks)
-  for(let row=-3;row<=3;row++) for(let col=-4;col<=4;col++)
-    blks.push([x+col*1.1, h+0.1, z+row*1.2, 'sandstone', 1.0, 0.2, 1.0]);
-  // Crop rows
-  for(let row=-3;row<=3;row++) for(let col=-4;col<=4;col+=2)
-    blks.push([x+col*1.1+0.5, h+0.55, z+row*1.2, 'plank', 0.25, rand(0.5,1.0), 0.25]);
-  return blks;
-}
-
-function _voxGranary(x, z, h) {
-  const blks=[], W=4, D=3, Hb=5;
-  for(let y=0;y<Hb;y++) for(const [dx,dz] of [[-W,D],[W,D],[-W,-D],[W,-D],[-W,0],[W,0],[0,D],[0,-D]])
-    blks.push([x+dx*0.5,h+y+0.5,z+dz*0.5,'brick',1.0,1.0,1.0]);
-  // Roof (inverted pyramid of thatch)
-  for(let r=0;r<3;r++) for(let col=-3+r;col<=3-r;col++) for(const dz2 of [-2+r,2-r])
-    blks.push([x+col,h+Hb+r+0.5,z+dz2,'thatch',1.0,1.0,1.0]);
-  return blks;
-}
-
-function _voxPyramid(x, z, h) {
-  const blks=[], levels=7, bs=2.2;
-  const mat = alignment > 0.2 ? 'sandstone' : 'cobble';
-  for(let L=0;L<levels;L++){
-    const size=levels-L;
-    for(let dx=-size;dx<=size;dx++) for(let dz=-size;dz<=size;dz++)
-      blks.push([x+dx*bs*0.8,h+L*bs*0.9+bs*0.45,z+dz*bs*0.8,mat,bs*0.8,bs*0.9,bs*0.8]);
-  }
-  blks.push([x,h+levels*bs*0.9+0.6,z,'gold',1.8,1.8,1.8]);
-  return blks;
-}
-
-function _voxObelisk(x, z, h) {
-  const blks=[];
-  blks.push([x,h+0.6,z,'marble',2.4,1.2,2.4]);
-  for(let y=1;y<16;y++){
-    const taper=lerp(0.85,0.35,y/15);
-    blks.push([x,h+y*1.1+0.55,z,'marble',taper,1.1,taper]);
-  }
-  blks.push([x,h+17.5,z,'gold',0.7,1.8,0.7]);
-  return blks;
-}
-
-function _voxStoneHead(x, z, h) {
-  const blks=[];
-  // Base/neck
-  for(let y=0;y<4;y++) blks.push([x,h+y*1.1+0.55,z,'stone',2.5-y*0.2,1.1,2.5-y*0.2]);
-  // Head
-  for(let dy=-1;dy<=1;dy++) for(let dx=-2;dx<=2;dx++) for(let dz=-2;dz<=2;dz++)
-    if(dx*dx+dy*dy+dz*dz<=7) blks.push([x+dx*0.9,h+4.5+dy*0.9,z+dz*0.9,'stone',0.9,0.9,0.9]);
-  // Eyes (emissive)
-  blks.push([x-0.85,h+4.9,z+1.8,'crystal',0.55,0.55,0.4]);
-  blks.push([x+0.85,h+4.9,z+1.8,'crystal',0.55,0.55,0.4]);
-  return blks;
-}
-
-function _voxTemple(x, z, h) {
-  const blks=[];
-  // Steps
-  for(let s=0;s<3;s++) blks.push([x,h+s*0.6+0.3,z,'marble',14-s*1.5,0.6,10-s]);
-  // Platform
-  blks.push([x,h+2.2,z,'marble',12,1.2,8.5]);
-  // Columns 2×5
-  for(let col=0;col<5;col++){
-    const cx=x-5+col*2.5;
-    for(const cz of [z-3.5,z+3.5]) for(let y=0;y<8;y++)
-      blks.push([cx,h+3.0+y,cz,'marble',0.75,1.0,0.75]);
-  }
-  // Entablature
-  blks.push([x,h+11.0,z,'marble',12,0.9,8.5]);
-  // Pediment
-  for(let r=0;r<3;r++) blks.push([x,h+12.0+r*0.7,z,'gold',lerp(11,2,r/2),0.7,lerp(8,1.5,r/2)]);
-  return blks;
-}
-
-function _voxHandMonument(x, z, h) {
-  const blks=[];
-  // Pillar
-  for(let y=0;y<14;y++) blks.push([x,h+y+0.5,z,'marble',lerp(2.2,1.4,y/13),1.0,lerp(2.2,1.4,y/13)]);
-  // Palm
-  blks.push([x,h+14.5,z,'marble',5.5,1.4,5.0]);
-  // Fingers
-  [[-1.6,3.0],[-0.55,3.6],[0.55,3.6],[1.6,3.0]].forEach(([fx,fl])=>{
-    for(let fy=0;fy<Math.floor(fl);fy++)
-      blks.push([x+fx,h+14.5+fy+1.0,z-2.0,'marble',0.6,1.0,0.6]);
-  });
-  // Thumb
-  for(let ty=0;ty<3;ty++) blks.push([x+3.0,h+14.5+ty*0.85,z+0.8,'marble',0.6,0.85,0.6]);
-  // Gem in palm
-  blks.push([x,h+15.0,z+1.8,'crystal',1.0,1.0,1.0]);
-  return blks;
-}
-
-function _voxObservatory(x, z, h) {
-  const blks=[];
-  // Cylindrical base (approximate with blocks)
-  for(let i=0;i<10;i++){
-    const a=i/10*Math.PI*2, bx=x+Math.cos(a)*5, bz=z+Math.sin(a)*5;
-    for(let y=0;y<5;y++) blks.push([bx,h+y*1.0+0.5,bz,'marble',1.2,1.0,1.2]);
-  }
-  // Glass dome sections
-  for(let i=0;i<8;i++){
-    const a=i/8*Math.PI*2;
-    for(let tier=0;tier<4;tier++){
-      const r=Math.cos(tier/4*Math.PI*0.5)*5;
-      blks.push([x+Math.cos(a)*r,h+5+tier*1.4+0.7,z+Math.sin(a)*r,'crystal',1.2,1.4,1.2]);
-    }
-  }
-  // Telescope
-  for(let ty=0;ty<5;ty++) blks.push([x+1.5+ty*0.3,h+8+ty*0.8,z,'marble',0.6,0.8,0.6]);
-  return blks;
-}
-
-function _voxGrandTower(x, z, h) {
-  const blks=[];
-  const matKey = civilizationEra>=5 ? 'darkstone' : 'cobble';
-  for(let y=0;y<28;y++){
-    const t=lerp(1.0,0.55,y/27);
-    const w=Math.round(t*2.5);
-    for(let dx=-w;dx<=w;dx++) for(let dz=-w;dz<=w;dz++){
-      if(Math.abs(dx)===w||Math.abs(dz)===w) // hollow walls
-        blks.push([x+dx,h+y+0.5,z+dz,matKey,1.0,1.0,1.0]);
-    }
-    // Windows every 4 floors
-    if(y%4===2) blks.push([x,h+y+0.5,z+w+0.01,'crystal',1.0,1.5,0.3]);
-  }
-  // Battlements
-  for(let i=0;i<8;i++){
-    const a=i/8*Math.PI*2, br=2.2;
-    blks.push([x+Math.cos(a)*br,h+28.6,z+Math.sin(a)*br,'cobble',0.8,1.4,0.8]);
-  }
-  // Beacon
-  blks.push([x,h+30.5,z,'gold',1.2,1.2,1.2]);
-  blks.push([x,h+31.8,z,'crystal',0.7,0.7,0.7]);
-  return blks;
-}
-
-// Dispatch table
-const STRUCTURES = {
-  stoneCircle:  _voxStoneCircle,
-  totemPole:    _voxTotemPole,
-  palisade:     _voxPalisade,
-  well:         _voxWell,
-  farm:         _voxFarm,
-  granary:      _voxGranary,
-  pyramid:      _voxPyramid,
-  obelisk:      _voxObelisk,
-  stoneHead:    _voxStoneHead,
-  temple:       _voxTemple,
-  handMonument: _voxHandMonument,
-  observatory:  _voxObservatory,
-  grandTower:   _voxGrandTower,
-};
+const STRUCTURES = {}; // legacy compatibility (unused — generateStructure handles all)
 
 function scheduleConstruction(type, x, z, h) {
+  // Pick next architectural style (rotate through them)
   const styleIdx = _styleIndex % ARCH_STYLES.length;
   _styleIndex++;
   const styleName = ARCH_STYLES[styleIdx].name;
-  showMiracleFlash(`Building ${styleName} ${type}…`, '#88aaff');
+
+  showMiracleFlash(`Building ${styleName} structure…`, '#88aaff');
   spawnBurst(v3(x,h+1,z), 0x88aaff, 14, 4, 0.18, 1.5);
+
   const delay = rand(400, 1200);
   setTimeout(()=>{
-    // Try generateStructure first; fall back to legacy STRUCTURES dispatch
-    let voxels = generateStructure(x, z, h, civilizationEra, styleIdx);
-    if (!voxels || voxels.length === 0) {
-      const buildFn = STRUCTURES[type];
-      if (!buildFn) return;
-      voxels = buildFn(x, z, h);
-    }
-    if (!voxels || voxels.length===0) return;
-    voxels.sort((a,b)=>a[1]-b[1]);
-    voxels.forEach(([bx,by,bz,matKey,sx=1,sy=1,sz=1])=>{
+    const voxels = generateStructure(x, z, h, civilizationEra, styleIdx);
+    if (!voxels || voxels.length === 0) return;
+
+    // Sort bottom-to-top
+    voxels.sort((a,b) => a[1]-b[1]);
+
+    // Queue all blocks
+    voxels.forEach(([bx,by,bz,matKey,sx=1,sy=1,sz=1]) => {
       queueBlock(bx, by, bz, window.BLK[matKey] || window.BLK.stone, sx, sy, sz);
     });
+
     const celebDelay = Math.min(voxels.length * BLOCK_INTERVAL * 1000 / 3 + 600, 8000);
     setTimeout(()=>{
       spawnBurst(v3(x,h+8,z), 0xffcc44, 45, 10, 0.28, 3.0);
       showMiracleFlash(`✦ ${styleName} ${type} complete!`, '#ffcc44');
-      playTone(330,'triangle',0.8,0.22);
+      playTone(330,'triangle',0.8,0.22); setTimeout(()=>playTone(440,'triangle',0.6,0.18),250);
       changeAlignment(0.04);
       creatures.forEach(c=>c.gainExperience(22));
     }, celebDelay);
@@ -4550,25 +4380,25 @@ function gameLoop() {
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 function init() {
-  initTextures();
-  initBlockMats();
-  initScene();
-  buildTerrain();
-  buildWater();
-  buildTrees();
-  buildGrass();
-  buildHand();
-  buildVillage();
-  buildVillageBuildings();
-  buildClouds();
-  spawnCreature(VILLAGE_POS.x + 25, VILLAGE_POS.z + 5);
-  loadModels();
-  spawnAmbientSprites();
-  initWeather();
-  initRivalGod();
-  initGestureCanvas();
-  initInput();
-  initTutorial();
+  setLoadProgress(5,  'Textures…');   initTextures();
+  setLoadProgress(10, 'Materials…');  initBlockMats();
+  setLoadProgress(15, 'Scene…');      initScene();
+  setLoadProgress(25, 'Terrain…');    buildTerrain();
+  setLoadProgress(38, 'Water…');      buildWater();
+  setLoadProgress(46, 'Trees…');      buildTrees();
+  setLoadProgress(52, 'Grass…');      buildGrass();
+  setLoadProgress(55, 'Hand…');       buildHand();
+  setLoadProgress(60, 'Village…');    buildVillage();
+  setLoadProgress(65, 'Buildings…');  buildVillageBuildings();
+  setLoadProgress(70, 'Clouds…');     buildClouds();
+  setLoadProgress(74, 'Creature…');   spawnCreature(VILLAGE_POS.x + 25, VILLAGE_POS.z + 5);
+  setLoadProgress(78, 'Models…');     loadModels();
+  setLoadProgress(82, 'Spirits…');    spawnAmbientSprites();
+  setLoadProgress(85, 'Weather…');    initWeather();
+  setLoadProgress(88, 'Rivals…');     initRivalGod();
+  setLoadProgress(91, 'Controls…');   initGestureCanvas();
+  setLoadProgress(94, 'Input…');      initInput();
+  setLoadProgress(97, 'Tutorial…');   initTutorial();
   updateAlignmentUI();
   updateFaithUI();
   updateHandColor();
@@ -4576,6 +4406,11 @@ function init() {
   // Initial food so villagers don't starve immediately
   spawnFood(new THREE.Vector3(VILLAGE_POS.x + 5, 0, VILLAGE_POS.z - 4));
   spawnFood(new THREE.Vector3(VILLAGE_POS.x - 6, 0, VILLAGE_POS.z + 3));
+
+  setLoadProgress(100, 'Ready!');
+  // Hide loading screen smoothly
+  const ls = document.getElementById('loading-screen');
+  if (ls) { ls.style.transition = 'opacity 0.8s'; ls.style.opacity = '0'; setTimeout(() => ls.remove(), 900); }
 
   gameLoop();
 }
@@ -4589,12 +4424,16 @@ function showError(msg) {
 }
 
 if (typeof THREE === 'undefined') {
-  showError('ERROR: Three.js failed to load. Check that lib/three.min.js is present.');
+  const ls = document.getElementById('loading-screen');
+  if (ls) { ls.style.opacity = '0'; setTimeout(() => ls.remove(), 300); }
+  showError('ERROR: Three.js failed to load. Check that lib/three.min.js is present at lib/three.min.js');
 } else {
   try {
     init();
   } catch(e) {
-    showError('ERROR: ' + e.message + ' — ' + e.stack);
+    const ls = document.getElementById('loading-screen');
+    if (ls) { ls.style.opacity = '0'; setTimeout(() => ls.remove(), 300); }
+    showError('GAME ERROR: ' + e.message + '\n' + (e.stack || ''));
   }
 }
 </script>
