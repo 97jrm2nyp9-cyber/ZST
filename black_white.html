@@ -198,6 +198,47 @@ canvas { display: block; }
 }
 #objective-label { font-size: 9px; letter-spacing: 3px; color: rgba(255,200,80,0.6); text-transform: uppercase; }
 #objective-text  { font-size: 12px; color: rgba(255,255,255,0.85); letter-spacing: 1px; margin-top: 2px; }
+
+/* ── Chat system ────────────────────────────────── */
+#chat-toggle {
+  position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 20px; padding: 6px 18px; color: rgba(255,255,255,0.75);
+  font-size: 12px; letter-spacing: 2px; cursor: pointer; pointer-events: auto;
+  transition: background 0.15s, opacity 0.3s;
+  user-select: none; -webkit-user-select: none;
+}
+#chat-toggle:hover { background: rgba(255,255,255,0.12); }
+#chat-panel {
+  position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+  width: min(520px, 92vw);
+  background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px; overflow: hidden; display: none; flex-direction: column;
+  pointer-events: auto; backdrop-filter: blur(6px);
+}
+#chat-panel.open { display: flex; }
+#chat-log {
+  max-height: 200px; overflow-y: auto; padding: 10px 12px 6px;
+  display: flex; flex-direction: column; gap: 4px;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+.chat-msg { font-size: 12px; line-height: 1.45; word-break: break-word; }
+.chat-msg .who { font-weight: bold; margin-right: 5px; letter-spacing: 0.5px; }
+#chat-input-row {
+  display: flex; border-top: 1px solid rgba(255,255,255,0.1); padding: 8px 10px; gap: 8px;
+}
+#chat-input {
+  flex: 1; background: rgba(255,255,255,0.07); border: none; border-radius: 6px;
+  color: #fff; font-size: 13px; padding: 6px 10px; outline: none; font-family: Georgia,serif;
+  letter-spacing: 0.5px;
+}
+#chat-input::placeholder { color: rgba(255,255,255,0.3); }
+#chat-send {
+  background: rgba(255,220,80,0.18); border: 1px solid rgba(255,220,80,0.3);
+  border-radius: 6px; color: rgba(255,220,80,0.9); font-size: 11px; letter-spacing: 1px;
+  padding: 6px 12px; cursor: pointer; white-space: nowrap;
+}
+#chat-send:hover { background: rgba(255,220,80,0.3); }
 </style>
 </head>
 <body>
@@ -295,6 +336,16 @@ canvas { display: block; }
   <div id="miracle-flash"></div>
   <canvas id="gesture-canvas"></canvas>
   <canvas id="minimap" width="140" height="140"></canvas>
+
+  <!-- Chat system -->
+  <div id="chat-toggle">💬 SPEAK</div>
+  <div id="chat-panel">
+    <div id="chat-log"></div>
+    <div id="chat-input-row">
+      <input id="chat-input" type="text" placeholder="Speak to your people… (try: feed, heal, smite, bless, rain, help)" maxlength="120" autocomplete="off" autocorrect="off" spellcheck="false"/>
+      <button id="chat-send">SEND</button>
+    </div>
+  </div>
 </div>
 
 <canvas id="c"></canvas>
@@ -1861,6 +1912,7 @@ class CreatureAgent {
     this.traits.curiosity    = clamp(this.traits.curiosity    + 0.05, 0, 1);
     this._pulse(0xffee44); playReward();
     showMiracleFlash('Creature Rewarded ✦', '#ffd700');
+    { const rp=['"I will serve you well, great one! 🌟"','"Your kindness fills my heart!"','"I grow stronger with your blessing!"']; chatLog('Creature',rp[Math.floor(Math.random()*rp.length)],'#ffd700'); }
     changeAlignment(0.03);
     this.gainExperience(10);
     this._updateUI();
@@ -1871,6 +1923,7 @@ class CreatureAgent {
     this.traits.friendliness = clamp(this.traits.friendliness - 0.08, 0, 1);
     this._pulse(0xff2200); playPunish();
     showMiracleFlash('Creature Punished', '#cc4444');
+    { const pp=['"I… I understand. I will do better. 😔"','"Please… I will obey."','"Forgive me, my god."']; chatLog('Creature',pp[Math.floor(Math.random()*pp.length)],'#cc8844'); }
     changeAlignment(-0.03);
     this.gainExperience(3);
     this._updateUI();
@@ -2591,6 +2644,11 @@ function updateAmbientSprites(t) {
 }
 
 // ─── Prayer system ────────────────────────────────────────────────────────────
+const _prayerPhrases = {
+  food:    ['"Please, great one — we starve! 🍎"', '"Our children hunger. Grant us food!"', '"The harvest fails. Feed us, god!"'],
+  protect: ['"They attack us! Protect us, lord! 🛡"', '"The enemy comes. Save your servants!"', '"We fear the dark god. Shield us!"'],
+  heal:    ['"We are sick. Heal us, divine one! 💚"', '"Bless us with health!"', '"The plague weakens us. Mercy!"'],
+};
 function spawnPrayer(villager) {
   if (!villager.alive) return;
   if (activePrayers.some(p=>p.villager===villager)) return;
@@ -2601,6 +2659,11 @@ function spawnPrayer(villager) {
   div.textContent = icons[type];
   document.body.appendChild(div);
   activePrayers.push({ villager, type, timer: 14, div });
+  // Log to chat (throttle: only if no recent prayer of same type)
+  const phrases = _prayerPhrases[type];
+  if (phrases && Math.random() < 0.4) {
+    chatLog(_villagerName(), phrases[Math.floor(Math.random()*phrases.length)], '#ffcc88');
+  }
 }
 
 function updatePrayers(dt) {
@@ -2643,6 +2706,133 @@ function checkPrayerAnswers(miracleType, pos) {
       p.div.remove(); activePrayers.splice(i,1);
     }
   }
+}
+
+// ─── Chat / God–People communication ─────────────────────────────────────────
+let _chatOpen = false;
+const _chatHistory = [];
+
+function chatLog(who, text, color) {
+  _chatHistory.push({ who, text, color });
+  const log = document.getElementById('chat-log');
+  if (!log) return;
+  const el = document.createElement('div');
+  el.className = 'chat-msg';
+  el.innerHTML = `<span class="who" style="color:${color}">${who}</span><span style="color:rgba(255,255,255,0.82)">${text}</span>`;
+  log.appendChild(el);
+  // Keep at most 80 messages in DOM
+  while (log.children.length > 80) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+  // If panel closed, flash the toggle button
+  if (!_chatOpen) {
+    const tog = document.getElementById('chat-toggle');
+    if (tog) { tog.style.background='rgba(255,220,80,0.28)'; setTimeout(()=>{ if(tog) tog.style.background=''; },1200); }
+  }
+}
+
+function _villagerName() {
+  const names = ['Aldric','Mira','Thorn','Elsie','Bram','Senna','Cael','Nola','Rudi','Faye'];
+  return names[Math.floor(Math.random()*names.length)];
+}
+
+const GOD_COMMANDS = [
+  { keys:['help','controls','how'],
+    fn:()=>{ chatLog('Scroll','Use 1/2/3/4 for miracles. R=Reward creature, P=Punish. Hold RMB to draw spells. Drag objects with LMB.','#aaaaff'); } },
+  { keys:['feed','food','hunger','eat','bread','crops','farm'],
+    fn:()=>{ castMiracleAt('food', VILLAGE_POS.clone().add(v3(rand(-8,8),0,rand(-8,8))), true); chatLog('Villager',`${_villagerName()}: "The gods have blessed us with food! 🍎"`, '#ffcc88'); } },
+  { keys:['heal','cure','mend','bless','sick'],
+    fn:()=>{ castMiracleAt('heal', VILLAGE_POS.clone(), true); chatLog('Villager',`${_villagerName()}: "We feel the divine warmth! 💚"`, '#88ffaa'); } },
+  { keys:['fire','burn','fireball','smite rival','attack','destroy enemy'],
+    fn:()=>{ castMiracleAt('fireball', RIVAL_POS.clone(), true); chatLog('Rival','⚔ "So you dare strike at me? You will regret this!"','#ff4466'); } },
+  { keys:['smite'],
+    fn:()=>{ castMiracleAt('fireball', RIVAL_POS.clone().add(v3(rand(-5,5),0,rand(-5,5))), true); chatLog('Scroll','Fireball hurled at the rival god!','#ff8844'); } },
+  { keys:['wood','build','construct','grow','expand'],
+    fn:()=>{ castMiracleAt('wood', VILLAGE_POS.clone().add(v3(rand(-12,12),0,rand(-12,12))), true); chatLog('Villager',`${_villagerName()}: "Timber has appeared! We'll build anew! 🪵"`, '#c8922a'); } },
+  { keys:['rain','water','wet'],
+    fn:()=>{ _weatherType='rain'; _weatherTimer=0; _weatherNextChange=rand(40,70); chatLog('Villager',`${_villagerName()}: "It rains! Praise the heavens! 🌧"`, '#88aaff'); showMiracleFlash('🌧 Rain falls…','#88aaff'); } },
+  { keys:['storm','thunder','lightning'],
+    fn:()=>{ _weatherType='storm'; _weatherTimer=0; _weatherNextChange=rand(30,50); shakeCamera(1.5); chatLog('Villager',`${_villagerName()}: "A great storm! Take shelter! ⛈"`, '#cc88ff'); showMiracleFlash('⛈ Storm unleashed!','#cc88ff'); } },
+  { keys:['sun','clear','peace','calm','stop rain'],
+    fn:()=>{ _weatherType='clear'; _weatherTimer=0; _weatherNextChange=rand(60,120); chatLog('Villager',`${_villagerName()}: "The skies clear. The god smiles upon us! ☀"`, '#ffdd88'); } },
+  { keys:['reward','good creature','pet','praise'],
+    fn:()=>{ creatures.forEach(c=>c.reward()); chatLog('Creature', '"Thank you, my god! 🌟"', '#ffd700'); } },
+  { keys:['punish','bad creature','scold'],
+    fn:()=>{ creatures.forEach(c=>c.punish()); chatLog('Creature', '"I… I understand. I will do better. 😔"', '#cc8844'); } },
+  { keys:['who are you','what are you','hello','hi','greetings','hail'],
+    fn:()=>{ chatLog('Scroll','You are a God. Shape the world, protect your people, and crush your rivals. They believe in you.','#aaccff'); } },
+  { keys:['rival','enemy','dark god','other god'],
+    fn:()=>{ if(rivalGod&&!rivalGod.defeated) chatLog('Rival','⚔ "I can hear you, fool. Your people will bow to me."','#ff4466');
+             else chatLog('Scroll','The rival god has been defeated. Peace reigns.','#aaffaa'); } },
+  { keys:['status','report','faith','how are'],
+    fn:()=>{ const alive=villagers.filter(v=>v.alive).length;
+             chatLog('Scroll',`${alive} villagers alive. Faith: ${Math.floor(faithPoints)}. Era: ${ERAS[civilizationEra].name}. Alignment: ${alignment>=0?'+':''}${alignment.toFixed(2)}.`,'#aaccff'); } },
+  { keys:['worship','pray','kneel','bow'],
+    fn:()=>{ villagers.forEach(v=>{if(v.alive){v.fear=Math.max(0,v.fear-0.3);v.state='worship';}}); chatLog('Villager',`${_villagerName()}: "We kneel before you, almighty one! 🙏"`, '#ffcc88'); changeAlignment(0.05); } },
+  { keys:['earthquake','quake','shake'],
+    fn:()=>{ shakeCamera(4); chatLog('Villager',`${_villagerName()}: "THE EARTH TREMBLES! A SIGN FROM THE GOD! 😱"`, '#ffaa44'); } },
+  { keys:['thank','thanks','bless you'],
+    fn:()=>{ const vn=_villagerName(); chatLog('Villager',`${vn}: "Thank you for watching over us, great one. 🙏"`, '#ffcc88');
+             spawnBurst(VILLAGE_POS.clone().add(v3(0,5,0)),0xffee88,15,6,0.2,2);
+             changeAlignment(0.03); } },
+];
+
+function _parseGodCommand(text) {
+  const lower = text.toLowerCase().trim();
+  if (!lower) return false;
+  for (const cmd of GOD_COMMANDS) {
+    if (cmd.keys.some(k => lower.includes(k))) {
+      cmd.fn();
+      return true;
+    }
+  }
+  // Unrecognised: relay to a random villager
+  const alive = villagers.filter(v=>v.alive);
+  if (alive.length) {
+    const responses = [
+      `${_villagerName()}: "The god speaks! But we know not what is willed of us…"`,
+      `${_villagerName()}: "Great one, your words drift through the heavens. Send us a miracle!"`,
+      `${_villagerName()}: "We hear the divine voice… and tremble with awe."`,
+      `${_villagerName()}: "The sky speaks! We are humbled, great lord."`,
+    ];
+    chatLog('Villager', responses[Math.floor(Math.random()*responses.length)], '#ffcc88');
+  }
+  return true;
+}
+
+function initChat() {
+  const toggle = document.getElementById('chat-toggle');
+  const panel  = document.getElementById('chat-panel');
+  const input  = document.getElementById('chat-input');
+  const send   = document.getElementById('chat-send');
+  if (!toggle || !panel || !input) return;
+
+  toggle.addEventListener('click', () => {
+    _chatOpen = !_chatOpen;
+    panel.classList.toggle('open', _chatOpen);
+    toggle.textContent = _chatOpen ? '✕ CLOSE' : '💬 SPEAK';
+    if (_chatOpen) { setTimeout(()=>input.focus(), 50); }
+  });
+
+  const doSend = () => {
+    const txt = input.value.trim();
+    if (!txt) return;
+    chatLog('God ✦', txt, '#ffd700');
+    input.value = '';
+    setTimeout(() => _parseGodCommand(txt), 150);
+  };
+
+  send.addEventListener('click', doSend);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); doSend(); }
+    // Don't let chat input trigger game hotkeys
+    e.stopPropagation();
+  });
+  input.addEventListener('keyup', e => e.stopPropagation());
+
+  // Welcome message after a short delay
+  setTimeout(() => {
+    chatLog('Scroll', 'Your people await your word. Open the chat to speak — try "help" to see what you can command.', '#aaccff');
+  }, 5000);
 }
 
 // ─── Miracles ────────────────────────────────────────────────────────────────
@@ -3891,6 +4081,8 @@ class RivalGod {
     const numBalls = this.faith>60?3:2;
     this.lastAction='Attacking!';
     showMiracleFlash('⚔ Rival God Attacks!','#ff2244');
+    const _attackTaunts=['⚔ "Your people will burn!"','⚔ "Bow before me, weakling god!"','⚔ "Your faith is MINE!"','⚔ "I grow stronger while you play with toys!"'];
+    chatLog('Rival God',_attackTaunts[Math.floor(Math.random()*_attackTaunts.length)],'#ff4466');
     playTone(55,'sawtooth',0.6,0.22);
     for(let i=0;i<numBalls;i++){
       setTimeout(()=>{
@@ -4029,6 +4221,7 @@ function initTutorial() {
   setTimeout(()=>{
     if (rivalGod && !rivalGod.defeated) {
       showMiracleFlash('⚔ Rival God: "Your people will be MINE!"', '#ff4466');
+      chatLog('Rival God','⚔ "Your people will be MINE. I can feel their doubt already. You are no god — you are an insect."','#ff4466');
       spawnBurst(new THREE.Vector3(RIVAL_POS.x,getTerrainHeight(RIVAL_POS.x,RIVAL_POS.z)+5,RIVAL_POS.z), 0xaa0022, 30, 10, 0.3, 2.5);
       playTone(60,'sawtooth',1.2,0.2);
       shakeCamera(1.0);
@@ -4179,7 +4372,9 @@ function fireRandomEvent() {
           '"Surrender now and I will be merciful."',
           '"Your creature is nothing compared to mine!"',
         ];
-        showMiracleFlash('⚔ Rival: ' + taunts[Math.floor(Math.random()*taunts.length)], '#ff6688');
+        const taunt = taunts[Math.floor(Math.random()*taunts.length)];
+        showMiracleFlash('⚔ Rival: ' + taunt, '#ff6688');
+        chatLog('Rival God', '⚔ ' + taunt, '#ff4466');
         playTone(55,'sawtooth',0.6,0.15);
         spawnBurst(new THREE.Vector3(RIVAL_POS.x, getTerrainHeight(RIVAL_POS.x,RIVAL_POS.z)+6, RIVAL_POS.z), 0xaa0022, 25, 9, 0.28, 2.0);
       } else {
@@ -4399,6 +4594,7 @@ function init() {
   setLoadProgress(91, 'Controls…');   initGestureCanvas();
   setLoadProgress(94, 'Input…');      initInput();
   setLoadProgress(97, 'Tutorial…');   initTutorial();
+  setLoadProgress(99, 'Chat…');       initChat();
   updateAlignmentUI();
   updateFaithUI();
   updateHandColor();
