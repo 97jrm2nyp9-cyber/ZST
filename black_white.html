@@ -1488,6 +1488,24 @@ function buildGrass() {
   // PlaneGeometry lies in XY plane → upright in world with Y-rotation only
   const geo  = new THREE.PlaneGeometry(0.38, BH);
   const mat  = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, vertexColors: true });
+  // Inject wind sway + tip-lightening into the built-in material
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = { value: 0 };
+    window._grassShader = shader;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nvarying float vTip;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vTip = uv.y;
+        vec4 gw = instanceMatrix * vec4(transformed, 1.0);
+        float sway = sin(uTime*1.7 + gw.x*0.38 + gw.z*0.27)*0.16
+                   + sin(uTime*3.1 + gw.x*0.91)*0.05;
+        transformed.x += sway * uv.y * uv.y;
+        transformed.z += sway * uv.y * 0.4;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vTip;')
+      .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+        gl_FragColor.rgb *= (0.68 + vTip*0.55);`);
+  };
   const mesh = new THREE.InstancedMesh(geo, mat, N);
   mesh.frustumCulled = false;
 
@@ -2664,6 +2682,79 @@ function spawnBurst(pos, color, count = 20, speed = 8, size = 0.25, life = 1.2) 
 }
 
 // ─── Ambient sprites (birds / bats) ──────────────────────────────────────────
+// ─── Fireflies & lens flare ──────────────────────────────────────────────────
+function initAtmosphere() {
+  // Fireflies — drift around the village, visible only at night
+  const N = 90;
+  const pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = rand(4, 42);
+    const x = VILLAGE_POS.x + Math.cos(a) * r;
+    const z = VILLAGE_POS.z + Math.sin(a) * r;
+    pos[i*3]   = x;
+    pos[i*3+1] = getTerrainHeight(x, z) + rand(0.5, 3.5);
+    pos[i*3+2] = z;
+  }
+  const ffGeo = new THREE.BufferGeometry();
+  ffGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const ffMat = new THREE.PointsMaterial({
+    color: 0xccff66, size: 0.45, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  window._fireflies = new THREE.Points(ffGeo, ffMat);
+  window._firefliesBase = pos.slice(); // original positions for drift
+  scene.add(window._fireflies);
+
+  // Lens flare — radial-gradient sprite that tracks the sun
+  const fc = document.createElement('canvas'); fc.width = fc.height = 128;
+  const fctx = fc.getContext('2d');
+  const grad = fctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0.0, 'rgba(255,250,230,0.95)');
+  grad.addColorStop(0.18, 'rgba(255,235,180,0.55)');
+  grad.addColorStop(0.45, 'rgba(255,200,110,0.18)');
+  grad.addColorStop(1.0, 'rgba(255,180,80,0)');
+  fctx.fillStyle = grad; fctx.fillRect(0, 0, 128, 128);
+  const flareTex = new THREE.CanvasTexture(fc);
+  const flareMat = new THREE.SpriteMaterial({
+    map: flareTex, transparent: true, opacity: 0.0,
+    blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
+  });
+  window._lensFlare = new THREE.Sprite(flareMat);
+  window._lensFlare.scale.setScalar(55);
+  scene.add(window._lensFlare);
+}
+
+function updateAtmosphere(elapsed, dt) {
+  // Fireflies — fade in at night, twinkle, slow drift
+  if (window._fireflies) {
+    const night = clamp(1.0 - _daylight * 2.2, 0, 1);
+    const m = window._fireflies.material;
+    m.opacity = night * (0.55 + Math.sin(elapsed * 2.6) * 0.25);
+    if (night > 0.02) {
+      const p = window._fireflies.geometry.attributes.position;
+      const base = window._firefliesBase;
+      for (let i = 0; i < p.count; i++) {
+        p.array[i*3]   = base[i*3]   + Math.sin(elapsed * 0.55 + i * 1.71) * 1.4;
+        p.array[i*3+1] = base[i*3+1] + Math.sin(elapsed * 0.80 + i * 2.33) * 0.8;
+        p.array[i*3+2] = base[i*3+2] + Math.cos(elapsed * 0.48 + i * 1.13) * 1.4;
+      }
+      p.needsUpdate = true;
+    }
+  }
+  // Lens flare follows the sun, fades when sun is low or behind camera
+  if (window._lensFlare && window._sun) {
+    window._lensFlare.position.copy(window._sun.position).multiplyScalar(2.5);
+    const toSun = window._sun.position.clone().normalize();
+    const camDir = new THREE.Vector3();
+    camera.getWorldDirection(camDir);
+    const facing = clamp(camDir.dot(toSun), 0, 1);
+    window._lensFlare.material.opacity = _daylight * facing * 0.85;
+  }
+  // Grass wind
+  if (window._grassShader) window._grassShader.uniforms.uTime.value = elapsed;
+}
+
 function spawnAmbientSprites() {
   for (let i = 0; i < 8; i++) {
     const geo = new THREE.PlaneGeometry(0.8, 0.5);
@@ -2693,6 +2784,9 @@ function updateAmbientSprites(t) {
       Math.sin(phase) * s.userData.r
     );
     s.rotation.y = phase + Math.PI / 2;
+    // Wing flap — squash the sprite rhythmically like beating wings
+    const flap = Math.abs(Math.sin(t * 7.0 + i * 1.9));
+    s.scale.set(1.0, 0.35 + flap * 0.75, 1.0);
     if (goodMode) s.material.color.setHex(0xfff4cc);
     else          s.material.color.setHex(0x220011);
   });
@@ -3106,33 +3200,47 @@ function buildCampfire(x, z) {
 let clouds = [];
 
 function buildClouds() {
-  const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.82, roughness: 1.0, metalness: 0 });
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 16; i++) {
     const grp = new THREE.Group();
-    const numPuffs = 4 + Math.floor(Math.random() * 4);
+    // Per-cloud material so opacity can vary cloud-to-cloud
+    const cloudMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, transparent: true, opacity: rand(0.55, 0.88),
+      roughness: 1.0, metalness: 0, emissive: 0x8899bb, emissiveIntensity: 0.06,
+    });
+    const numPuffs = 5 + Math.floor(Math.random() * 5);
+    const cw = rand(8, 16); // cloud half-width
     for (let j = 0; j < numPuffs; j++) {
-      const r    = rand(5, 12);
+      const t = j / (numPuffs - 1); // 0..1 across the cloud
+      // Bigger puffs in the middle, smaller at ends — natural cumulus silhouette
+      const mid  = 1.0 - Math.abs(t - 0.5) * 2.0;
+      const r    = rand(4, 7) + mid * rand(3, 6);
       const puff = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 7), cloudMat);
-      puff.position.set(rand(-9, 9), rand(-2, 4), rand(-5, 5));
-      puff.scale.y = rand(0.52, 0.72);
+      // Flat bottoms: puffs sit on a common base line, only bulge upward
+      puff.position.set((t - 0.5) * cw * 2 + rand(-2, 2), r * rand(0.15, 0.4), rand(-4, 4));
+      puff.scale.y = rand(0.50, 0.68);
       grp.add(puff);
     }
     const angle = Math.random() * Math.PI * 2;
     const dist  = rand(45, 165);
-    grp.position.set(Math.cos(angle)*dist, rand(58, 92), Math.sin(angle)*dist);
+    const baseY = rand(58, 95);
+    grp.position.set(Math.cos(angle)*dist, baseY, Math.sin(angle)*dist);
     grp.userData.speed = rand(0.5, 1.5);
     grp.userData.angle = angle;
     grp.userData.dist  = dist;
+    grp.userData.baseY = baseY;
+    grp.userData.phase = Math.random() * Math.PI * 2;
     scene.add(grp);
     clouds.push(grp);
   }
 }
 
 function updateClouds(dt) {
+  const t = clock.getElapsedTime();
   for (const c of clouds) {
     c.userData.angle += dt * c.userData.speed * 0.003;
     c.position.x = Math.cos(c.userData.angle) * c.userData.dist;
     c.position.z = Math.sin(c.userData.angle) * c.userData.dist;
+    c.position.y = c.userData.baseY + Math.sin(t * 0.10 + c.userData.phase) * 1.6;
   }
 }
 
@@ -4740,6 +4848,17 @@ function gameLoop() {
   // Clouds drift
   updateClouds(dt);
 
+  // Fireflies, lens flare, grass wind
+  updateAtmosphere(elapsed, dt);
+
+  // Trees sway gently in the wind
+  for (let i = 0; i < trees.length; i++) {
+    const tr = trees[i];
+    if (tr.userData.burning) continue;
+    tr.rotation.z = Math.sin(elapsed * 0.85 + i * 1.71) * 0.014;
+    tr.rotation.x = Math.cos(elapsed * 0.65 + i * 2.37) * 0.011;
+  }
+
   // Villager updates
   for (const v of villagers) v.update(dt);
 
@@ -4825,6 +4944,7 @@ function init() {
   setLoadProgress(74, 'Creature…');   spawnCreature(VILLAGE_POS.x + 25, VILLAGE_POS.z + 5);
   setLoadProgress(78, 'Models…');     loadModels();
   setLoadProgress(82, 'Spirits…');    spawnAmbientSprites();
+  setLoadProgress(84, 'Fireflies…');  initAtmosphere();
   setLoadProgress(85, 'Weather…');    initWeather();
   setLoadProgress(88, 'Rivals…');     initRivalGod();
   setLoadProgress(91, 'Controls…');   initGestureCanvas();
