@@ -1111,82 +1111,109 @@ function buildTerrain() {
 
   const mat = new THREE.ShaderMaterial({
     uniforms: { uAlignment: { value: 0.0 } },
-    vertexShader: [
-      'varying float vHeight;',
-      'varying vec3  vNormal;',
-      'varying vec2  vXZ;',
-      'varying vec3  vWorldPos;',
-      'void main(){',
-      '  vHeight   = position.y;',
-      '  vNormal   = normalize(normalMatrix * normal);',
-      '  vXZ       = vec2(position.x, position.z);',
-      '  vWorldPos = (modelMatrix * vec4(position,1.0)).xyz;',
-      '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);',
-      '}'
-    ].join('\n'),
-    fragmentShader: [
-      'precision highp float;',
-      'uniform float uAlignment;',
-      'varying float vHeight;',
-      'varying vec3  vNormal;',
-      'varying vec2  vXZ;',
-      'varying vec3  vWorldPos;',
-      'float h21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5);}',
-      'float ns(vec2 p){',
-      '  vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.0-2.0*f);',
-      '  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);',
-      '}',
-      'float fbm(vec2 p){return ns(p)*0.5+ns(p*2.1)*0.25+ns(p*4.4)*0.125+ns(p*9.1)*0.0625;}',
-      'void main(){',
-      // Biome colours
-      '  vec3 wetSand  = vec3(0.62,0.56,0.38);',
-      '  vec3 drySand  = vec3(0.92,0.83,0.56);',
-      '  vec3 grassLo  = vec3(0.28,0.62,0.16);',
-      '  vec3 grassHi  = vec3(0.16,0.48,0.10);',
-      '  vec3 rock     = vec3(0.52,0.48,0.42);',
-      '  vec3 snow     = vec3(0.94,0.96,1.00);',
-      // Slope → rock on steep faces
-      '  float slope    = 1.0 - clamp(vNormal.y, 0.0, 1.0);',
-      '  float rockBias = smoothstep(0.36, 0.70, slope);',
-      // Height blends (smooth, overlapping zones)
-      '  float tSand  = smoothstep(1.4, 0.2, vHeight);',
-      '  float tWet   = smoothstep(0.0, 1.8, vHeight) * smoothstep(2.8, 0.9, vHeight);',
-      '  float tGrass = smoothstep(0.6, 4.8, vHeight) * smoothstep(14.0,9.5,vHeight);',
-      '  float tForest= smoothstep(3.2,11.0, vHeight) * smoothstep(17.5,12.5,vHeight);',
-      '  float tRock  = smoothstep(9.5,16.5, vHeight);',
-      '  float tSnow  = smoothstep(15.0,20.5,vHeight);',
-      '  vec3 col = drySand;',
-      '  col = mix(col, wetSand, tWet * 0.70);',
-      '  col = mix(col, grassLo, tGrass  * (1.0 - rockBias * 0.75));',
-      '  col = mix(col, grassHi, tForest * (1.0 - rockBias * 0.75));',
-      '  col = mix(col, rock,    tRock   + rockBias * (tGrass + tForest) * 0.88);',
-      '  col = mix(col, snow,    tSnow);',
-      // Macro + micro detail noise
-      '  float det  = fbm(vXZ * 0.37);',
-      '  float det2 = ns(vXZ * 2.2)*0.5 + ns(vXZ*4.5)*0.5;',
-      '  col *= 0.80 + det*0.26 + det2*0.07;',
-      // Evil tint
-      '  float evil = clamp(-uAlignment, 0.0, 1.0);',
-      '  col = mix(col, col * vec3(0.50,0.32,0.32), evil * 0.68);',
-      // Normal perturbation (bump detail)
-      '  float ep = 0.80;',
-      '  float bx = ns(vXZ*0.68+vec2(ep,0.0)) - ns(vXZ*0.68-vec2(ep,0.0));',
-      '  float bz = ns(vXZ*0.68+vec2(0.0,ep)) - ns(vXZ*0.68-vec2(0.0,ep));',
-      '  vec3 bN  = normalize(vec3(-bx*1.2, 1.0, -bz*1.2));',
-      '  vec3 n   = normalize(vNormal*0.60 + bN*0.40);',
-      // Lighting
-      '  vec3 sunDir  = normalize(vec3(0.55, 1.0, 0.4));',
-      '  vec3 viewDir = normalize(cameraPosition - vWorldPos);',
-      '  float diff   = max(dot(n, sunDir), 0.0);',
-      // Cool sky bounce from below/sides
-      '  float skyBnc = max(dot(n, vec3(-0.25,0.5,-0.15)), 0.0) * 0.16;',
-      // Specular — sand catches sun, grass/forest matte
-      '  float specAmt = (1.0 - clamp(tGrass + tForest*0.8, 0.0, 1.0)) * 0.08;',
-      '  float spec    = pow(max(dot(reflect(-sunDir, n), viewDir), 0.0), 22.0) * specAmt;',
-      '  float light   = 0.18 + 0.82*diff + skyBnc;',
-      '  gl_FragColor  = vec4(col * light + vec3(spec), 1.0);',
-      '}'
-    ].join('\n'),
+    vertexShader: `
+      varying float vHeight;
+      varying vec3  vNormal;
+      varying vec2  vXZ;
+      varying vec3  vWorldPos;
+      void main(){
+        vHeight   = position.y;
+        vNormal   = normalize(normalMatrix * normal);
+        vXZ       = vec2(position.x, position.z);
+        vWorldPos = (modelMatrix * vec4(position,1.0)).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      uniform float uAlignment;
+      varying float vHeight;
+      varying vec3  vNormal;
+      varying vec2  vXZ;
+      varying vec3  vWorldPos;
+
+      float h21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5);}
+      float ns(vec2 p){
+        vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.0-2.0*f);
+        return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);
+      }
+      float fbm(vec2 p){return ns(p)*0.5+ns(p*2.1)*0.25+ns(p*4.4)*0.125+ns(p*9.1)*0.0625;}
+
+      void main(){
+        // Biome colours — richer palette
+        vec3 wetSand  = vec3(0.58,0.52,0.34);
+        vec3 drySand  = vec3(0.94,0.86,0.58);
+        vec3 grassLo  = vec3(0.24,0.60,0.14);
+        vec3 grassHi  = vec3(0.14,0.44,0.09);
+        vec3 moss     = vec3(0.20,0.38,0.12);
+        vec3 rock     = vec3(0.50,0.46,0.40);
+        vec3 rockDark = vec3(0.34,0.31,0.28);
+        vec3 snow     = vec3(0.96,0.97,1.00);
+        vec3 snowBlue = vec3(0.82,0.90,1.00); // shadowed snow
+
+        // Slope → rock on steep faces
+        float slope    = 1.0 - clamp(vNormal.y, 0.0, 1.0);
+        float rockBias = smoothstep(0.32, 0.68, slope);
+
+        // Height blends
+        float tSand  = smoothstep(1.4, 0.0, vHeight);
+        float tWet   = smoothstep(0.0, 2.0, vHeight) * smoothstep(3.0, 1.0, vHeight);
+        float tGrass = smoothstep(0.4, 5.0, vHeight) * smoothstep(14.5,9.0,vHeight);
+        float tForest= smoothstep(3.0,12.0, vHeight) * smoothstep(18.0,13.0,vHeight);
+        float tRock  = smoothstep(9.0,17.0, vHeight);
+        float tSnow  = smoothstep(14.5,21.0, vHeight);
+
+        vec3 col = drySand;
+        col = mix(col, wetSand, tWet * 0.75);
+        col = mix(col, grassLo, tGrass  * (1.0 - rockBias * 0.80));
+        col = mix(col, grassHi, tForest * (1.0 - rockBias * 0.80));
+        // Moss patches on sheltered rock faces (north-facing / low slope)
+        float mossN = fbm(vXZ*0.52+3.7) * smoothstep(0.45, 0.20, slope) * smoothstep(4.0, 8.0, vHeight);
+        col = mix(col, moss, mossN * 0.55 * (1.0-rockBias));
+        // Rock colour varies by height/noise
+        float rockVar = ns(vXZ*0.28)*0.5 + ns(vXZ*0.78)*0.5;
+        vec3 rockCol  = mix(rockDark, rock, rockVar);
+        col = mix(col, rockCol, tRock + rockBias*(tGrass+tForest)*0.90);
+        // Snow: lit faces bright white, shadowed faces blue-white
+        float snowShade = mix(0.0, 0.45, rockBias);
+        col = mix(col, mix(snow, snowBlue, snowShade + slope*0.3), tSnow);
+
+        // Macro + micro detail noise
+        float det  = fbm(vXZ * 0.35);
+        float det2 = ns(vXZ * 2.1)*0.5 + ns(vXZ*4.8)*0.5;
+        col *= 0.78 + det*0.28 + det2*0.06;
+
+        // Cavity / concavity darkening (fake AO from height noise)
+        float cavity = fbm(vXZ*1.4)*0.12;
+        col *= 1.0 - cavity;
+
+        // Evil tint
+        float evil = clamp(-uAlignment, 0.0, 1.0);
+        col = mix(col, col * vec3(0.45,0.28,0.28) + vec3(0.04,0.01,0.02), evil * 0.72);
+
+        // Normal perturbation
+        float ep = 0.70;
+        float bx = ns(vXZ*0.65+vec2(ep,0.0)) - ns(vXZ*0.65-vec2(ep,0.0));
+        float bz = ns(vXZ*0.65+vec2(0.0,ep)) - ns(vXZ*0.65-vec2(0.0,ep));
+        vec3 bN  = normalize(vec3(-bx*1.4, 1.0, -bz*1.4));
+        vec3 n   = normalize(vNormal*0.55 + bN*0.45);
+
+        // Lighting
+        vec3 sunDir  = normalize(vec3(0.55, 1.0, 0.4));
+        vec3 viewDir = normalize(cameraPosition - vWorldPos);
+        float diff   = max(dot(n, sunDir), 0.0);
+        // Sky bounce (blue tint from above/sides)
+        float skyBnc = max(dot(n, vec3(-0.2, 0.65, -0.1)), 0.0) * 0.18;
+        // Subsurface scatter hint on grass (slight warm backlit)
+        float sss = max(dot(n, -sunDir), 0.0) * 0.04 * tGrass;
+        // Specular — sand wet glint, snow sparkle
+        float specAmt = (1.0 - clamp(tGrass + tForest*0.85, 0.0, 1.0)) * 0.09
+                      + tSnow * 0.12;
+        float spec = pow(max(dot(reflect(-sunDir, n), viewDir), 0.0), 28.0) * specAmt;
+        float light = 0.16 + 0.84*diff + skyBnc + sss;
+        gl_FragColor = vec4(col * light + vec3(spec), 1.0);
+      }
+    `,
   });
 
   terrainMesh = new THREE.Mesh(geo, mat);
@@ -1222,63 +1249,91 @@ function buildWater() {
   const mat = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uAlignment: { value: 0 } },
     transparent: true, depthWrite: false,
-    vertexShader: [
-      'uniform float uTime;',
-      'varying float vWave;',
-      'varying vec2  vUV;',
-      'varying vec3  vWorldPos;',
-      'void main(){',
-      '  vec3 p = position;',
-      '  float w = sin(p.x*0.22+uTime*1.1)*cos(p.z*0.19+uTime*0.85)*0.55',
-      '           +sin(p.x*0.47+uTime*1.6)*0.22',
-      '           +sin(p.x*0.88+p.z*0.72+uTime*2.3)*0.10;',
-      '  p.y += w; vWave = w; vUV = vec2(p.x, p.z);',
-      '  vWorldPos = (modelMatrix * vec4(p,1.0)).xyz;',
-      '  gl_Position = projectionMatrix * modelViewMatrix * vec4(p,1.0);',
-      '}'
-    ].join('\n'),
-    fragmentShader: [
-      'precision highp float;',
-      'uniform float uAlignment;',
-      'uniform float uTime;',
-      'varying float vWave;',
-      'varying vec2  vUV;',
-      'varying vec3  vWorldPos;',
-      // noise for caustics
-      'float h21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5);}',
-      'float ns(vec2 p){vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);}',
-      'void main(){',
-      '  float evil = clamp(-uAlignment, 0.0, 1.0);',
-      '  vec3 deep  = mix(vec3(0.02,0.10,0.38), vec3(0.14,0.02,0.05), evil*0.7);',
-      '  vec3 mid   = mix(vec3(0.05,0.22,0.62), vec3(0.26,0.04,0.08), evil*0.6);',
-      '  vec3 crest = mix(vec3(0.44,0.76,0.98), vec3(0.60,0.18,0.18), evil*0.6);',
-      '  float foam  = smoothstep(0.12, 0.48, vWave);',
-      '  vec3 col    = mix(deep, mid, clamp(vWave*1.9+0.45, 0.0, 1.0));',
-      '  col = mix(col, crest, foam * 0.65);',
-      // Animated band detail
-      '  float band = sin(vUV.x*0.14+uTime*0.55)*sin(vUV.y*0.11+uTime*0.48)*0.5+0.5;',
-      '  col += mix(vec3(0.10,0.24,0.58), vec3(0.38,0.04,0.04), evil) * band * 0.07;',
-      // Caustics
-      '  float caust = ns(vUV*0.28+vec2(uTime*0.12,uTime*0.09))*ns(vUV*0.22-vec2(uTime*0.08,uTime*0.13));',
-      '  col += mix(vec3(0.18,0.45,0.9), vec3(0.6,0.1,0.1), evil) * caust * 0.06;',
-      // Wave normal via finite differences
-      '  float eps = 0.8;',
-      '  float wx1=sin((vUV.x+eps)*0.22+uTime*1.1)*cos(vUV.y*0.19+uTime*0.85)*0.55+sin((vUV.x+eps)*0.47+uTime*1.6)*0.22+sin((vUV.x+eps)*0.88+vUV.y*0.72+uTime*2.3)*0.10;',
-      '  float wx2=sin((vUV.x-eps)*0.22+uTime*1.1)*cos(vUV.y*0.19+uTime*0.85)*0.55+sin((vUV.x-eps)*0.47+uTime*1.6)*0.22+sin((vUV.x-eps)*0.88+vUV.y*0.72+uTime*2.3)*0.10;',
-      '  float wz1=sin(vUV.x*0.22+uTime*1.1)*cos((vUV.y+eps)*0.19+uTime*0.85)*0.55+sin(vUV.x*0.47+uTime*1.6)*0.22+sin(vUV.x*0.88+(vUV.y+eps)*0.72+uTime*2.3)*0.10;',
-      '  float wz2=sin(vUV.x*0.22+uTime*1.1)*cos((vUV.y-eps)*0.19+uTime*0.85)*0.55+sin(vUV.x*0.47+uTime*1.6)*0.22+sin(vUV.x*0.88+(vUV.y-eps)*0.72+uTime*2.3)*0.10;',
-      '  vec3 wN = normalize(vec3((wx2-wx1)*3.0, 2.0, (wz2-wz1)*3.0));',
-      // Sun specular
-      '  vec3 sunDir  = normalize(vec3(0.55, 1.0, 0.4));',
-      '  vec3 viewDir = normalize(cameraPosition - vWorldPos);',
-      '  float spec   = pow(max(dot(reflect(-sunDir,wN), viewDir), 0.0), 80.0) * 2.0;',
-      '  col += mix(vec3(1.0,0.95,0.82), vec3(1.0,0.55,0.35), evil) * spec;',
-      // Fresnel tinting at glancing angles
-      '  float fres = pow(1.0 - max(dot(viewDir, vec3(0,1,0)), 0.0), 5.0) * 0.40;',
-      '  col += mix(vec3(0.18,0.38,0.78), vec3(0.48,0.08,0.18), evil) * fres;',
-      '  gl_FragColor = vec4(col, 0.84 + foam*0.12);',
-      '}'
-    ].join('\n'),
+    vertexShader: `
+      uniform float uTime;
+      varying float vWave;
+      varying vec2  vUV;
+      varying vec3  vWorldPos;
+      void main(){
+        vec3 p = position;
+        float w = sin(p.x*0.22+uTime*1.1)*cos(p.z*0.19+uTime*0.85)*0.55
+                 +sin(p.x*0.47+uTime*1.6)*0.22
+                 +sin(p.x*0.88+p.z*0.72+uTime*2.3)*0.10
+                 +sin(p.x*0.14+p.z*0.31+uTime*0.75)*0.30;
+        p.y += w; vWave = w; vUV = vec2(p.x, p.z);
+        vWorldPos = (modelMatrix * vec4(p,1.0)).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p,1.0);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      uniform float uAlignment, uTime;
+      varying float vWave;
+      varying vec2  vUV;
+      varying vec3  vWorldPos;
+
+      float h21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5);}
+      float ns(vec2 p){vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);}
+      float fbm2(vec2 p){return ns(p)*0.5+ns(p*2.1+1.7)*0.5;}
+
+      void main(){
+        float evil = clamp(-uAlignment, 0.0, 1.0);
+
+        // Deep water → mid-water → crest colours
+        vec3 deep  = mix(vec3(0.01,0.08,0.34), vec3(0.12,0.01,0.04), evil*0.75);
+        vec3 mid   = mix(vec3(0.04,0.20,0.58), vec3(0.24,0.03,0.07), evil*0.65);
+        vec3 crest = mix(vec3(0.50,0.82,1.00), vec3(0.65,0.20,0.20), evil*0.60);
+        vec3 foam  = mix(vec3(0.88,0.96,1.00), vec3(0.85,0.60,0.60), evil*0.5);
+
+        float wN01 = clamp(vWave*1.9+0.45, 0.0, 1.0);
+        vec3 col = mix(deep, mid, wN01);
+
+        // Foam: noise-shaped, not just smoothstep
+        float foamMask = smoothstep(0.10, 0.50, vWave);
+        float foamNoise = fbm2(vUV*0.55 + uTime*0.08);
+        foamMask *= 0.55 + foamNoise*0.45;
+        col = mix(col, crest, foamMask*0.7);
+        col = mix(col, foam,  smoothstep(0.38, 0.55, foamMask)*0.5);
+
+        // Animated sub-surface banding
+        float band = sin(vUV.x*0.12+uTime*0.52)*sin(vUV.y*0.10+uTime*0.44)*0.5+0.5;
+        col += mix(vec3(0.08,0.22,0.55), vec3(0.35,0.03,0.03), evil) * band * 0.08;
+
+        // Hex caustic pattern (two offset grids)
+        vec2 cu1 = vUV*0.30+vec2(uTime*0.11, uTime*0.08);
+        vec2 cu2 = vUV*0.24-vec2(uTime*0.07, uTime*0.12);
+        float caust = ns(cu1)*ns(cu1+0.3)*ns(cu2)*ns(cu2+0.5);
+        col += mix(vec3(0.20,0.50,1.00), vec3(0.65,0.12,0.12), evil) * caust * 0.10;
+
+        // Sparkle glints — sharp high-frequency points
+        float glintN = ns(vUV*8.5 + uTime*0.4);
+        float glint  = step(0.93, glintN) * (glintN-0.93)/0.07;
+        col += mix(vec3(1.0,0.95,0.80), vec3(1.0,0.40,0.40), evil) * glint * 2.5;
+
+        // Wave normals (finite differences)
+        float eps = 0.85;
+        float wx1=sin((vUV.x+eps)*0.22+uTime*1.1)*cos(vUV.y*0.19+uTime*0.85)*0.55+sin((vUV.x+eps)*0.47+uTime*1.6)*0.22+sin((vUV.x+eps)*0.88+vUV.y*0.72+uTime*2.3)*0.10;
+        float wx2=sin((vUV.x-eps)*0.22+uTime*1.1)*cos(vUV.y*0.19+uTime*0.85)*0.55+sin((vUV.x-eps)*0.47+uTime*1.6)*0.22+sin((vUV.x-eps)*0.88+vUV.y*0.72+uTime*2.3)*0.10;
+        float wz1=sin(vUV.x*0.22+uTime*1.1)*cos((vUV.y+eps)*0.19+uTime*0.85)*0.55+sin(vUV.x*0.47+uTime*1.6)*0.22+sin(vUV.x*0.88+(vUV.y+eps)*0.72+uTime*2.3)*0.10;
+        float wz2=sin(vUV.x*0.22+uTime*1.1)*cos((vUV.y-eps)*0.19+uTime*0.85)*0.55+sin(vUV.x*0.47+uTime*1.6)*0.22+sin(vUV.x*0.88+(vUV.y-eps)*0.72+uTime*2.3)*0.10;
+        vec3 wNorm = normalize(vec3((wx2-wx1)*3.5, 2.0, (wz2-wz1)*3.5));
+
+        // Sun specular highlight (main + micro)
+        vec3 sunDir  = normalize(vec3(0.55, 1.0, 0.4));
+        vec3 viewDir = normalize(cameraPosition - vWorldPos);
+        float spec   = pow(max(dot(reflect(-sunDir,wNorm), viewDir), 0.0), 90.0) * 2.8;
+        float spec2  = pow(max(dot(reflect(-sunDir,wNorm), viewDir), 0.0), 180.0) * 4.0;
+        col += mix(vec3(1.0,0.96,0.84), vec3(1.0,0.60,0.40), evil) * (spec+spec2);
+
+        // Fresnel rim — sky reflection at glancing angle
+        float NdotV = max(dot(viewDir, vec3(0,1,0)), 0.0);
+        float fres  = pow(1.0 - NdotV, 5.0) * 0.50;
+        col += mix(vec3(0.20,0.42,0.85), vec3(0.50,0.10,0.22), evil) * fres;
+
+        float alpha = 0.82 + foamMask*0.14;
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
   });
   waterMesh = new THREE.Mesh(geo, mat);
   waterMesh.position.y = SEA_LEVEL - 0.4;
@@ -3632,6 +3687,82 @@ function finishGesture() {
   gesturePath = [];
 }
 
+// ─── Post-process shader definitions ─────────────────────────────────────────
+
+const GodRaysShader = {
+  uniforms: { tDiffuse:{value:null}, uSunPos:{value:new THREE.Vector2(0.5,0.8)}, uDaylight:{value:1.0} },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `
+    precision mediump float;
+    uniform sampler2D tDiffuse;
+    uniform vec2 uSunPos;
+    uniform float uDaylight;
+    varying vec2 vUv;
+    void main(){
+      vec4 base = texture2D(tDiffuse, vUv);
+      if(uDaylight < 0.04){ gl_FragColor = base; return; }
+      vec2 tc = vUv;
+      vec2 delta = (vUv - uSunPos) * (1.0/56.0) * 0.92;
+      float decay = 1.0;
+      vec3 rays = vec3(0.0);
+      for(int i=0;i<56;i++){
+        tc -= delta;
+        vec2 clampedTc = clamp(tc, 0.0, 1.0);
+        vec3 samp = texture2D(tDiffuse, clampedTc).rgb;
+        // Only accumulate bright pixels (sky/sun area)
+        float bright = max(samp.r, max(samp.g, samp.b));
+        rays += samp * decay * 0.28 * smoothstep(0.55, 1.0, bright);
+        decay *= 0.95;
+      }
+      float dist = length(vUv - uSunPos);
+      float fade = 1.0 - smoothstep(0.0, 0.75, dist);
+      // Warm golden god-ray tint
+      vec3 tint = vec3(1.0, 0.88, 0.55);
+      gl_FragColor = vec4(base.rgb + rays * tint * fade * uDaylight * 0.55, 1.0);
+    }
+  `
+};
+
+const ColorGradeShader = {
+  uniforms: { tDiffuse:{value:null}, uTime:{value:0.0}, uExposure:{value:1.0} },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `
+    precision highp float;
+    uniform sampler2D tDiffuse;
+    uniform float uTime, uExposure;
+    varying vec2 vUv;
+    vec3 aces(vec3 x){ float a=2.51,b=0.03,c=2.43,d=0.59,e=0.14; return clamp((x*(a*x+b))/(x*(c*x+d)+e),0.0,1.0); }
+    void main(){
+      // Subtle chromatic aberration at screen edges
+      vec2 off = (vUv - 0.5);
+      float abr = dot(off,off) * 0.006;
+      float cr = texture2D(tDiffuse, vUv + off*abr*0.7).r;
+      float cg = texture2D(tDiffuse, vUv).g;
+      float cb = texture2D(tDiffuse, vUv - off*abr*0.7).b;
+      vec3 col = vec3(cr,cg,cb) * uExposure;
+      // ACES filmic
+      col = aces(col);
+      // Warm highlights, cool shadows split-tone
+      float lum = dot(col, vec3(0.299,0.587,0.114));
+      col += mix(vec3(-0.010,-0.006,0.018), vec3(0.018,0.006,-0.012), lum);
+      // Saturation
+      float gray = dot(col, vec3(0.333));
+      col = mix(vec3(gray), col, 1.18);
+      // Contrast
+      col = mix(col, col*col*(3.0-2.0*col), 0.22);
+      // Vignette
+      vec2 uv2 = vUv-0.5;
+      float v = 1.0 - dot(uv2,uv2)*2.0;
+      col *= mix(0.70,1.0,clamp(v,0.0,1.0));
+      // Film grain
+      float seed = dot(vUv, vec2(127.1,311.7)) + fract(uTime*0.0013)*439.0;
+      float grain = fract(sin(seed)*43758.5) - 0.5;
+      col += grain * 0.016;
+      gl_FragColor = vec4(clamp(col,0.0,1.0),1.0);
+    }
+  `
+};
+
 // ─── GLB model loading ───────────────────────────────────────────────────────
 function loadModels() {
   if (typeof THREE.GLTFLoader === 'undefined') { console.warn('GLTFLoader not available'); return; }
@@ -3715,37 +3846,120 @@ function initScene() {
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     uniforms: {
-      uTop:    { value: new THREE.Color(0.12,0.28,0.72) },
-      uMid:    { value: new THREE.Color(0.52,0.72,0.98) },
-      uBot:    { value: new THREE.Color(0.72,0.86,0.98) },
-      uSunDir: { value: new THREE.Vector3(0.55, 0.85, 0.3).normalize() },
-      uAlign:  { value: 0.0 },
+      uTop:      { value: new THREE.Color(0.12,0.28,0.72) },
+      uMid:      { value: new THREE.Color(0.52,0.72,0.98) },
+      uBot:      { value: new THREE.Color(0.72,0.86,0.98) },
+      uSunDir:   { value: new THREE.Vector3(0.55, 0.85, 0.3).normalize() },
+      uAlign:    { value: 0.0 },
+      uDaylight: { value: 1.0 },
+      uHorizonT: { value: 0.0 },
+      uTime:     { value: 0.0 },
     },
-    vertexShader: 'varying vec3 vPos; void main(){ vPos=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
-    fragmentShader: [
-      'precision highp float;',
-      'uniform vec3  uTop, uMid, uBot, uSunDir;',
-      'uniform float uAlign;',
-      'varying vec3  vPos;',
-      'void main(){',
-      '  float ty = clamp(vPos.y / 380.0, 0.0, 1.0);',
-      '  vec3  col = mix(uBot, mix(uMid, uTop, ty*ty), ty);',
-      // Atmospheric haze thickens near horizon
-      '  float haze = pow(1.0 - ty, 4.0) * 0.22;',
-      '  col = mix(col, vec3(0.78,0.90,1.0), haze);',
-      // Sun
-      '  vec3  dir  = normalize(vPos);',
-      '  float sun  = max(0.0, dot(dir, normalize(uSunDir)));',
-      '  float disc = smoothstep(0.9985,0.9998,sun);',
-      '  float halo = pow(sun,18.0)*0.55;',
-      '  float atm  = pow(sun,4.5)*0.12;',
-      '  col += vec3(1.0,0.97,0.76)*disc + vec3(1.0,0.74,0.28)*halo + vec3(1.0,0.50,0.15)*atm;',
-      // Evil tint → purple/red sky
-      '  float evil = clamp(-uAlign, 0.0, 1.0);',
-      '  col = mix(col, col * vec3(0.6, 0.3, 0.5) + vec3(0.05,0.0,0.08), evil * 0.65);',
-      '  gl_FragColor = vec4(col, 1.0);',
-      '}'
-    ].join('\n'),
+    vertexShader: `varying vec3 vPos; void main(){ vPos=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `
+      precision highp float;
+      uniform vec3  uTop, uMid, uBot, uSunDir;
+      uniform float uAlign, uDaylight, uHorizonT, uTime;
+      varying vec3  vPos;
+
+      float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+      float ns(vec2 p){ vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.0-2.0*f); return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y); }
+
+      float starField(vec3 dir, float scale, float thresh){
+        // spherical → flat UV
+        float theta = atan(dir.x, dir.z);
+        float phi   = asin(clamp(dir.y,-1.0,1.0));
+        vec2 uv = vec2(theta * 0.15915 + 0.5, phi * 0.31831 + 0.5);
+        vec2 cell = floor(uv * scale);
+        vec2 sub  = fract(uv * scale);
+        float h = hash(cell);
+        if(h > thresh){
+          float bright = (h-thresh)/(1.0-thresh);
+          float twink  = 0.55 + 0.45*sin(uTime*(1.5+h*9.0)+h*628.0);
+          float d      = length(sub-0.5);
+          return (1.0-smoothstep(0.0,0.3,d)) * bright * twink;
+        }
+        return 0.0;
+      }
+
+      // Mie scattering phase (Henyey-Greenstein)
+      float miePhase(float cosA, float g){
+        float g2=g*g;
+        return (1.0-g2)/(4.0*3.14159*pow(max(0.0,1.0+g2-2.0*g*cosA),1.5));
+      }
+
+      void main(){
+        float ty = clamp(vPos.y/380.0, 0.0, 1.0);
+        vec3 dir = normalize(vPos);
+
+        // Base sky gradient (night→day lerp driven externally)
+        vec3 col = mix(uBot, mix(uMid, uTop, ty*ty), ty);
+
+        // Atmospheric horizon haze
+        float haze = pow(1.0-ty, 5.5)*0.30*uDaylight;
+        col = mix(col, vec3(0.80,0.92,1.00), haze);
+
+        // Sunset/dawn warm horizon bands
+        float h1 = pow(1.0-ty, 10.0)*uHorizonT;
+        float h2 = pow(1.0-ty, 22.0)*uHorizonT;
+        col = mix(col, vec3(1.00,0.48,0.08), h1*0.72);
+        col = mix(col, vec3(0.95,0.22,0.32), h2*0.38);
+        // Soft purple just above horizon at dusk
+        float h3 = pow(max(0.0,ty-0.02),1.0)*pow(1.0-ty,3.5)*uHorizonT;
+        col = mix(col, vec3(0.55,0.20,0.62), h3*0.25);
+
+        // Sun disc + Mie scattering glow
+        vec3 sunDir = normalize(uSunDir);
+        float cosA = dot(dir, sunDir);
+        float disc   = smoothstep(0.9985,0.9998,cosA);
+        float corona  = pow(max(0.0,cosA),20.0)*0.60;
+        float mieLobe = miePhase(cosA,0.76)*0.14*uDaylight;
+        float rayleigh= pow(max(0.0,cosA),5.0)*0.12;
+        col += vec3(1.00,0.97,0.78)*disc;
+        col += vec3(1.00,0.72,0.28)*corona*uDaylight;
+        col += vec3(1.00,0.62,0.22)*mieLobe;
+        col += vec3(0.28,0.50,1.00)*rayleigh;
+
+        // STARS + MOON — fade in as night falls
+        float night = 1.0 - clamp(uDaylight*1.8, 0.0, 1.0);
+        if(night > 0.005){
+          float s1 = starField(dir,180.0,0.974);
+          float s2 = starField(dir,290.0,0.981)*0.65;
+          float s3 = starField(dir*1.3,420.0,0.986)*0.45;
+          float stars = (s1+s2+s3)*night;
+          // Star color: most white, some warm/blue
+          float sc = hash(floor(dir.xz*90.0+dir.y*44.0));
+          vec3 starCol = mix(vec3(0.90,0.95,1.00), vec3(1.00,0.82,0.60)+vec3(0.0,0.0,0.5)*step(0.7,sc), sc*0.6);
+          col += starCol * stars;
+
+          // Milky way band
+          float mw1 = ns(dir.xz*2.1+dir.y*0.7)*ns(dir.xz*4.4-dir.y*1.2);
+          vec3  mwAxis = normalize(vec3(0.25,0.08,0.97));
+          float mwDot  = abs(dot(dir, mwAxis));
+          float mwMask = smoothstep(0.0,0.35,mwDot)*(1.0-smoothstep(0.35,0.75,mwDot));
+          col += vec3(0.28,0.24,0.55)*mw1*mwMask*night*0.40;
+
+          // Moon (opposite side from sun, slightly offset)
+          vec3 moonDir = normalize(vec3(-sunDir.x, max(0.1,-sunDir.y*0.4+0.25), -sunDir.z));
+          float moonCos = dot(dir, moonDir);
+          float moonDisc = smoothstep(0.9978,0.9992,moonCos);
+          float moonHalo = pow(max(0.0,moonCos),38.0)*0.10;
+          if(moonDisc > 0.001){
+            // Subtle crater / maria texture
+            vec3 ml = normalize(dir - moonDir*moonCos);
+            float crater = ns(ml.xy*120.0+0.3)*0.15+ns(ml.xz*80.0)*0.10;
+            col += (vec3(0.90,0.94,1.00)*(1.0-crater) + vec3(0.55,0.62,0.80)*crater)*moonDisc*night;
+          }
+          col += vec3(0.55,0.62,0.82)*moonHalo*night;
+        }
+
+        // Evil tint
+        float evil = clamp(-uAlign,0.0,1.0);
+        col = mix(col, col*vec3(0.50,0.24,0.52)+vec3(0.04,0.0,0.10), evil*0.68);
+
+        gl_FragColor = vec4(col,1.0);
+      }
+    `,
   });
   window._skyMat = skyMat;
   window._skyMesh = new THREE.Mesh(skyGeo, skyMat);
@@ -3799,15 +4013,23 @@ function initScene() {
     }
     const bloom = new THREE.UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      0.45,  // strength
-      0.5,   // radius
-      0.62   // threshold — catch more emissive surfaces
+      0.55,  // strength
+      0.55,  // radius
+      0.52   // threshold — catch more emissive surfaces
     );
     composer.addPass(bloom);
     window._bloomPass = bloom;
-    const copy = new THREE.ShaderPass(THREE.CopyShader);
-    copy.renderToScreen = true;
-    composer.addPass(copy);
+
+    // God rays pass (screen-space radial light shafts from sun)
+    const godRaysPass = new THREE.ShaderPass(GodRaysShader);
+    composer.addPass(godRaysPass);
+    window._godRaysPass = godRaysPass;
+
+    // Color grade + vignette + film grain (final look)
+    const gradePass = new THREE.ShaderPass(ColorGradeShader);
+    gradePass.renderToScreen = true;
+    composer.addPass(gradePass);
+    window._gradePass = gradePass;
   } catch (e) {
     console.warn('Bloom unavailable:', e.message);
     composer = null;
@@ -3872,8 +4094,19 @@ function updateDayNight(dt) {
     if (u.uMid) u.uMid.value.lerpColors(skyBot, skyTop, 0.35);
     u.uBot.value.copy(skyBot);
     u.uSunDir.value.set(sunX, sunY, sunZ).normalize();
-    if (u.uAlign) u.uAlign.value = alignment;
+    if (u.uAlign)    u.uAlign.value    = alignment;
+    if (u.uDaylight) u.uDaylight.value = _daylight;
+    if (u.uHorizonT) u.uHorizonT.value = horizT;
   }
+
+  // Project sun to screen-space for god rays
+  if (window._godRaysPass) {
+    const sunWorldPos = new THREE.Vector3(sunX, sunY, sunZ);
+    const sv = sunWorldPos.clone().project(camera);
+    window._godRaysPass.uniforms.uSunPos.value.set(sv.x * 0.5 + 0.5, sv.y * 0.5 + 0.5);
+    window._godRaysPass.uniforms.uDaylight.value = _daylight;
+  }
+
   scene.background = skyBot;
   scene.fog.color.copy(skyBot);
 }
@@ -4480,6 +4713,9 @@ function gameLoop() {
     waterMesh.material.uniforms.uTime.value = elapsed;
     waterMesh.material.uniforms.uAlignment.value = alignment;
   }
+  // Sky + post-process time uniforms
+  if (window._skyMat) window._skyMat.uniforms.uTime.value = elapsed;
+  if (window._gradePass) window._gradePass.uniforms.uTime.value = elapsed;
 
   // Day/night + civilization advancement
   updateDayNight(dt);
