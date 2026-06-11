@@ -499,7 +499,7 @@ function initBlockMats() {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const ISLAND_RADIUS  = 90;
-const TERRAIN_SEGS   = 168;
+const TERRAIN_SEGS   = 56;
 const TERRAIN_SIZE   = 200;
 const SEA_LEVEL      = 0;
 const INFLUENCE_BASE = 45;
@@ -1126,60 +1126,46 @@ function buildTerrain() {
   }
   geo.computeVertexNormals();
 
-  // ── Per-vertex biome colours (real PBR pipeline → receives shadows & sun) ──
+  // ── Per-vertex biome colours — vivid, saturated, low-poly flat-shaded ──
   const nrm    = geo.attributes.normal;
   const colors = new Float32Array(pos.count * 3);
-  const cTmp   = new THREE.Color(), cMix = new THREE.Color();
-  const drySand  = new THREE.Color(0.93, 0.85, 0.58);
-  const wetSand  = new THREE.Color(0.62, 0.55, 0.36);
-  const grassLo  = new THREE.Color(0.30, 0.58, 0.16);
-  const grassHi  = new THREE.Color(0.18, 0.45, 0.11);
-  const moss     = new THREE.Color(0.24, 0.40, 0.14);
-  const rockA    = new THREE.Color(0.52, 0.48, 0.42);
-  const rockB    = new THREE.Color(0.36, 0.33, 0.30);
-  const snowCol  = new THREE.Color(0.95, 0.96, 1.00);
+  const cTmp   = new THREE.Color();
+  const beach   = new THREE.Color().setHSL(0.11, 0.72, 0.72);   // warm golden sand
+  const grassLo = new THREE.Color().setHSL(0.28, 0.82, 0.36);   // vivid spring green
+  const grassHi = new THREE.Color().setHSL(0.30, 0.75, 0.28);   // deeper highland green
+  const rockA   = new THREE.Color().setHSL(0.06, 0.22, 0.52);   // warm grey rock
+  const rockB   = new THREE.Color().setHSL(0.07, 0.15, 0.40);   // darker rock
+  const snowCol = new THREE.Color().setHSL(0.60, 0.25, 0.92);   // cool blue-white snow
   const sstep = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i), h = pos.getY(i);
+    const h = pos.getY(i);
     const slope    = 1 - clamp(nrm.getY(i), 0, 1);
-    const rockBias = sstep(0.30, 0.62, slope);
-    cTmp.copy(drySand);
-    cTmp.lerp(wetSand, sstep(2.6, 0.8, h) * sstep(0.0, 1.6, h) * 0.75);
-    cTmp.lerp(grassLo, sstep(0.5, 4.2, h) * sstep(14.5, 9.0, h) * (1 - rockBias * 0.85));
-    cTmp.lerp(grassHi, sstep(3.0, 11.5, h) * sstep(18.0, 13.0, h) * (1 - rockBias * 0.85));
-    // moss in sheltered grass-height zones
-    const mossT = clamp(noise2D(x * 0.21 + 9.3, z * 0.21) * 0.5 + 0.5, 0, 1) * sstep(3.5, 7.0, h) * (1 - rockBias);
-    cTmp.lerp(moss, mossT * 0.45);
-    // rock varies between two tones by noise
-    cMix.copy(rockB).lerp(rockA, clamp(noise2D(x * 0.13, z * 0.13) * 0.5 + 0.5, 0, 1));
-    cTmp.lerp(cMix, clamp(sstep(9.0, 16.5, h) + rockBias * sstep(1.5, 5.0, h), 0, 1));
-    cTmp.lerp(snowCol, sstep(14.5, 20.0, h));
-    // per-vertex tonal jitter breaks up flat fields
-    const jit = noise2D(x * 0.5 + 3.7, z * 0.5 + 8.1) * 0.07;
-    colors[i*3]   = clamp(cTmp.r * (1 + jit), 0, 1);
-    colors[i*3+1] = clamp(cTmp.g * (1 + jit), 0, 1);
-    colors[i*3+2] = clamp(cTmp.b * (1 + jit), 0, 1);
+    const rockBias = sstep(0.28, 0.58, slope);
+    cTmp.copy(beach);
+    cTmp.lerp(grassLo, sstep(1.2, 3.8, h) * (1 - rockBias));
+    cTmp.lerp(grassHi, sstep(5.0, 10.0, h) * (1 - rockBias * 0.8));
+    const rockMix = rockA.clone().lerp(rockB, Math.random() * 0.4);
+    cTmp.lerp(rockMix, clamp(sstep(10.0, 16.0, h) + rockBias * sstep(2.0, 5.5, h), 0, 1));
+    cTmp.lerp(snowCol, sstep(15.0, 20.0, h));
+    colors[i*3]   = cTmp.r;
+    colors[i*3+1] = cTmp.g;
+    colors[i*3+2] = cTmp.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.94, metalness: 0.0 });
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.88, metalness: 0.0,
+    flatShading: true,  // beautiful low-poly faceted look
+  });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uAlignment = { value: 0.0 };
     window._terrainShader = shader;
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vTerrPos;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTerrPos = position;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-        uniform float uAlignment;
-        varying vec3 vTerrPos;
-        float th21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5);}
-        float tns(vec2 p){vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(th21(i),th21(i+vec2(1,0)),f.x),mix(th21(i+vec2(0,1)),th21(i+vec2(1,1)),f.x),f.y);}`)
+        uniform float uAlignment;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-        float tdet = tns(vTerrPos.xz*0.85)*0.5 + tns(vTerrPos.xz*3.4)*0.35 + tns(vTerrPos.xz*9.1)*0.15;
-        diffuseColor.rgb *= 0.84 + tdet*0.26;
         float tevil = clamp(-uAlignment, 0.0, 1.0);
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb*vec3(0.45,0.28,0.30)+vec3(0.03,0.01,0.02), tevil*0.7);`);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb*vec3(0.42,0.22,0.28)+vec3(0.02,0.0,0.02), tevil*0.75);`);
   };
 
   terrainMesh = new THREE.Mesh(geo, mat);
@@ -1245,11 +1231,11 @@ function buildWater() {
       void main(){
         float evil = clamp(-uAlignment, 0.0, 1.0);
 
-        // Deep water → mid-water → crest colours
-        vec3 deep  = mix(vec3(0.01,0.08,0.34), vec3(0.12,0.01,0.04), evil*0.75);
-        vec3 mid   = mix(vec3(0.04,0.20,0.58), vec3(0.24,0.03,0.07), evil*0.65);
-        vec3 crest = mix(vec3(0.50,0.82,1.00), vec3(0.65,0.20,0.20), evil*0.60);
-        vec3 foam  = mix(vec3(0.88,0.96,1.00), vec3(0.85,0.60,0.60), evil*0.5);
+        // Bold vivid water colours — deep royal blue to vibrant cyan
+        vec3 deep  = mix(vec3(0.02,0.08,0.48), vec3(0.14,0.01,0.08), evil*0.75);
+        vec3 mid   = mix(vec3(0.05,0.28,0.72), vec3(0.28,0.04,0.10), evil*0.65);
+        vec3 crest = mix(vec3(0.42,0.88,1.00), vec3(0.70,0.22,0.22), evil*0.60);
+        vec3 foam  = mix(vec3(0.92,0.98,1.00), vec3(0.88,0.65,0.65), evil*0.5);
 
         float wN01 = clamp(vWave*1.9+0.45, 0.0, 1.0);
         vec3 col = mix(deep, mid, wN01);
@@ -1338,15 +1324,15 @@ function buildTrees() {
 
 // Flat-shaded organic foliage clump — vertex-jittered icosahedron
 function _foliageClump(r, mat) {
-  const g = new THREE.IcosahedronGeometry(r, 1);
+  // OctahedronGeometry detail=0 → 8 triangles only → bold low-poly diamond shape
+  const g = new THREE.OctahedronGeometry(r, 0);
+  // Scale Y slightly to flatten, scale X/Z slightly to widen — more cloud-like
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) {
-    p.setXYZ(i,
-      p.getX(i) * (1 + rand(-0.22, 0.22)),
-      p.getY(i) * (1 + rand(-0.22, 0.22)),
-      p.getZ(i) * (1 + rand(-0.22, 0.22)));
+    p.setY(i, p.getY(i) * rand(0.65, 0.90));
+    p.setX(i, p.getX(i) * rand(0.90, 1.20));
+    p.setZ(i, p.getZ(i) * rand(0.90, 1.20));
   }
-  g.computeVertexNormals();
   const m = new THREE.Mesh(g, mat);
   m.castShadow = true;
   return m;
@@ -1370,20 +1356,19 @@ function buildOakTree(x, z, h, scale) {
   branch.rotation.z = Math.cos(ba)*0.9; branch.rotation.x = -Math.sin(ba)*0.9;
   branch.castShadow = true;
   group.add(branch);
-  // Foliage: 4-6 flat-shaded clumps, hue varied per clump
-  const lH = 0.26 + rand(-0.05, 0.05);
-  const nClumps = 4 + Math.floor(Math.random()*3);
+  // Foliage: 3-5 bold low-poly octahedron clumps
+  const lH = 0.27 + rand(-0.04, 0.04);
+  const nClumps = 3 + Math.floor(Math.random()*3);
   for (let j = 0; j < nClumps; j++) {
     const mat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color().setHSL(lH + rand(-0.02,0.02), rand(0.55,0.75), rand(0.22,0.34)),
-      roughness: 0.96, metalness: 0, flatShading: true,
+      color: new THREE.Color().setHSL(lH + rand(-0.025,0.025), rand(0.78,0.92), rand(0.28,0.42)),
+      roughness: 0.92, metalness: 0, flatShading: true,
     });
-    const cr = rand(1.3, 2.2) * scale;
+    const cr = rand(1.5, 2.5) * scale;
     const c  = _foliageClump(cr, mat);
     const a2 = (j / nClumps) * Math.PI * 2 + rand(0, 1.0);
-    const ao = j === 0 ? 0 : rand(0.8, 1.9) * scale;
-    c.position.set(Math.cos(a2)*ao, (3.7 + rand(0, 1.6))*scale, Math.sin(a2)*ao);
-    c.scale.y = rand(0.78, 0.95);
+    const ao = j === 0 ? 0 : rand(0.9, 2.0) * scale;
+    c.position.set(Math.cos(a2)*ao, (3.8 + rand(0, 1.8))*scale, Math.sin(a2)*ao);
     group.add(c);
   }
   group.userData = { type: 'tree', treeType: 'oak', x, z, h, scale, burning: false, fireTimer: 0 };
@@ -1395,7 +1380,7 @@ function buildOakTree(x, z, h, scale) {
 function buildPineTree(x, z, h, scale) {
   const group = new THREE.Group();
   group.position.set(x, h, z);
-  const tMat = new THREE.MeshStandardMaterial({ color: 0x553318, roughness: 0.93, metalness: 0, flatShading: true });
+  const tMat = new THREE.MeshStandardMaterial({ color: 0x7a4520, roughness: 0.90, metalness: 0, flatShading: true });
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14*scale, 0.30*scale, 4.6*scale, 6), tMat);
   trunk.castShadow = true;
   trunk.position.set(0, 2.3*scale, 0);
@@ -1404,21 +1389,15 @@ function buildPineTree(x, z, h, scale) {
   const nTiers = 3 + Math.floor(Math.random()*2);
   for (let tier = 0; tier < nTiers; tier++) {
     const mat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color().setHSL(lH + tier*0.008, rand(0.50,0.65), 0.15 + tier*0.022 + rand(0,0.04)),
-      roughness: 0.95, metalness: 0, flatShading: true,
+      color: new THREE.Color().setHSL(lH + tier*0.01, rand(0.72,0.88), 0.22 + tier*0.03 + rand(0,0.05)),
+      roughness: 0.92, metalness: 0, flatShading: true,
     });
-    const r = (2.4 - tier*0.50) * scale;
-    // Jittered cone for an organic silhouette
-    const cg = new THREE.ConeGeometry(r, 3.2*scale, 7);
-    const cp = cg.attributes.position;
-    for (let i = 0; i < cp.count; i++) {
-      if (cp.getY(i) < 0.5) cp.setX(i, cp.getX(i)*(1+rand(-0.18,0.18)));
-      if (cp.getY(i) < 0.5) cp.setZ(i, cp.getZ(i)*(1+rand(-0.18,0.18)));
-    }
-    cg.computeVertexNormals();
+    const r = (2.6 - tier*0.52) * scale;
+    // 5-sided cone — clearly faceted, beautiful low-poly silhouette
+    const cg = new THREE.ConeGeometry(r, 3.4*scale, 5);
     const cone = new THREE.Mesh(cg, mat);
-    cone.position.set(rand(-0.1,0.1)*scale, (3.7 + tier*2.2)*scale, rand(-0.1,0.1)*scale);
-    cone.rotation.y = Math.random() * Math.PI;
+    cone.position.set(0, (3.8 + tier*2.3)*scale, 0);
+    cone.rotation.y = (tier / nTiers) * Math.PI * 2;
     cone.castShadow = true;
     group.add(cone);
   }
@@ -1544,13 +1523,13 @@ function buildHand() {
 
   // Palm
   const palmGeo  = new THREE.BoxGeometry(1.8, 0.5, 2.2);
-  const palmMat  = new THREE.MeshStandardMaterial({ color: 0xf5c88a, roughness: 0.55, metalness: 0 });
+  const palmMat  = new THREE.MeshStandardMaterial({ color: 0xf5c880, roughness: 0.55, metalness: 0, flatShading: true });
   const palm     = new THREE.Mesh(palmGeo, palmMat);
   palm.castShadow = true;
   handGroup.add(palm);
 
   // Fingers (4)
-  const fingerMat = new THREE.MeshStandardMaterial({ color: 0xf5c88a, roughness: 0.55, metalness: 0 });
+  const fingerMat = new THREE.MeshStandardMaterial({ color: 0xf5c880, roughness: 0.55, metalness: 0, flatShading: true });
   [-0.6, -0.2, 0.2, 0.6].forEach((fx, i) => {
     const len = [1.5, 1.8, 1.7, 1.4][i];
     const fg  = new THREE.CapsuleGeometry(0.18, len, 4, 8);
@@ -1642,16 +1621,16 @@ class VillagerAgent {
     this.mesh.userData.type = 'villager';
     this.mesh.userData.agent = this;
 
-    const robeColor = new THREE.Color().setHSL(Math.random(), 0.48, 0.42 + Math.random() * 0.18);
-    const robeMat = new THREE.MeshStandardMaterial({ color: robeColor, roughness: 0.80, metalness: 0 });
-    const skinMat = new THREE.MeshStandardMaterial({ color: 0xf0c898, roughness: 0.60, metalness: 0 });
-    const hatMat  = new THREE.MeshStandardMaterial({ color: robeColor.clone().multiplyScalar(0.7), roughness: 0.85, metalness: 0 });
+    const robeColor = new THREE.Color().setHSL(Math.random(), 0.65, 0.45 + Math.random() * 0.15);
+    const robeMat = new THREE.MeshStandardMaterial({ color: robeColor, roughness: 0.80, metalness: 0, flatShading: true });
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xf0c888, roughness: 0.60, metalness: 0, flatShading: true });
+    const hatMat  = new THREE.MeshStandardMaterial({ color: robeColor.clone().multiplyScalar(0.65), roughness: 0.85, metalness: 0, flatShading: true });
 
-    const robe = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.46, 1.3, 7), robeMat);
+    const robe = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.46, 1.3, 7, 1), robeMat);
     robe.castShadow = true;
     this.mesh.add(robe);
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 8, 8), skinMat);
+    const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.27, 0), skinMat);  // 20 flat faces
     head.position.set(0, 0.93, 0);
     head.castShadow = true;
     this.mesh.add(head);
@@ -1823,8 +1802,8 @@ function buildVillage() {
   scene.add(totem);
 
   // Totem orb
-  const orbGeo = new THREE.SphereGeometry(0.85, 16, 16);
-  const orbMat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffcc44, emissiveIntensity: 2.0, roughness: 0.1, metalness: 0.3 });
+  const orbGeo = new THREE.IcosahedronGeometry(0.85, 2);  // faceted gem orb
+  const orbMat = new THREE.MeshStandardMaterial({ color: 0xffffaa, emissive: 0xffcc33, emissiveIntensity: 2.5, roughness: 0.05, metalness: 0.4, flatShading: true });
   const orb = new THREE.Mesh(orbGeo, orbMat);
   orb.position.set(VILLAGE_POS.x, h + 7.2, VILLAGE_POS.z);
   scene.add(orb);
@@ -2051,23 +2030,24 @@ class CreatureAgent {
   }
 
   _buildMesh() {
-    const mat     = new THREE.MeshStandardMaterial({ color: 0xc8a050, map: TEX.fur, roughness: 0.75, metalness: 0 });
-    const darkMat = new THREE.MeshStandardMaterial({ color: 0x8a6030, roughness: 0.85, metalness: 0 });
-    const maneMat = new THREE.MeshStandardMaterial({ color: 0x7a4a10, roughness: 0.90, metalness: 0 });
+    // Low-poly flat-shaded creature — no fur texture (too smooth-looking)
+    const mat     = new THREE.MeshStandardMaterial({ color: 0xd4a84a, roughness: 0.80, metalness: 0, flatShading: true });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x7a5020, roughness: 0.88, metalness: 0, flatShading: true });
+    const maneMat = new THREE.MeshStandardMaterial({ color: 0x5a3008, roughness: 0.92, metalness: 0, flatShading: true });
 
-    const body = new THREE.Mesh(new THREE.SphereGeometry(1.35, 11, 9), mat);
+    const body = new THREE.Mesh(new THREE.IcosahedronGeometry(1.35, 1), mat);
     body.scale.set(1.0, 0.82, 1.65); body.castShadow = true;
     this.group.add(body);
 
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.72, 1.0, 8), mat);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.72, 1.0, 6), mat);
     neck.position.set(0, 0.62, 1.1); neck.rotation.x = -0.38;
     this.group.add(neck);
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.92, 10, 9), mat);
+    const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.92, 1), mat);
     head.scale.set(1.0, 0.88, 1.1); head.position.set(0, 1.15, 1.95); head.castShadow = true;
     this.group.add(head);
 
-    const snout = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), mat);
+    const snout = new THREE.Mesh(new THREE.OctahedronGeometry(0.4, 0), mat);
     snout.scale.set(0.88, 0.68, 1.28); snout.position.set(0, 0.82, 2.62);
     this.group.add(snout);
 
@@ -2081,10 +2061,10 @@ class CreatureAgent {
     const eyeCol = new THREE.Color().setHSL(eyeHue, 0.9, 0.55);
     [-0.36, 0.36].forEach(ex => {
       const eyeMat = new THREE.MeshStandardMaterial({ color: eyeCol, emissive: eyeCol, emissiveIntensity: 1.6 });
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.17, 7, 7), eyeMat);
+      const eye = new THREE.Mesh(new THREE.OctahedronGeometry(0.17, 0), eyeMat);  // gem eye
       eye.position.set(ex, 1.3, 2.58); this.group.add(eye);
       this._eyeMats.push(eyeMat);
-      const pup = new THREE.Mesh(new THREE.SphereGeometry(0.085, 5, 5), new THREE.MeshBasicMaterial({ color: 0x110000 }));
+      const pup = new THREE.Mesh(new THREE.OctahedronGeometry(0.085, 0), new THREE.MeshBasicMaterial({ color: 0x110000 }));
       pup.position.set(ex, 1.3, 2.73); this.group.add(pup);
     });
 
@@ -2096,25 +2076,25 @@ class CreatureAgent {
 
     for (let m = 0; m < 9; m++) {
       const ma = (m / 9) * Math.PI * 2;
-      const mp = new THREE.Mesh(new THREE.SphereGeometry(0.33, 6, 5), maneMat);
+      const mp = new THREE.Mesh(new THREE.OctahedronGeometry(0.33, 0), maneMat);
       mp.position.set(Math.cos(ma) * 0.82, 0.82 + Math.sin(ma) * 0.14, 1.25);
       mp.scale.y = 1.45; this.group.add(mp);
     }
 
     this._legUpper = [];
     [[-0.88,-0.78,-0.98],[0.88,-0.78,-0.98],[-0.88,-0.78,0.82],[0.88,-0.78,0.82]].forEach(([lx,ly,lz]) => {
-      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.21, 0.95, 7), mat);
+      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.21, 0.95, 5), mat);
       upper.position.set(lx, ly, lz); upper.rotation.z = lx < 0 ? -0.13 : 0.13; upper.castShadow = true;
       this._legUpper.push(upper); this.group.add(upper);
-      const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.13, 0.88, 7), darkMat);
+      const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.13, 0.88, 5), darkMat);
       lower.position.set(lx + (lx < 0 ? -0.06 : 0.06), ly - 0.88, lz); this.group.add(lower);
-      const paw = new THREE.Mesh(new THREE.SphereGeometry(0.22, 7, 5), darkMat);
+      const paw = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), darkMat);
       paw.scale.set(1.2, 0.65, 1.32); paw.position.set(lx + (lx < 0 ? -0.1 : 0.1), ly - 1.38, lz + 0.1);
       this.group.add(paw);
     });
 
     for (let i = 0; i < 4; i++) {
-      const ts = new THREE.Mesh(new THREE.SphereGeometry(0.26 - i * 0.04, 6, 5), i < 3 ? mat : maneMat);
+      const ts = new THREE.Mesh(new THREE.OctahedronGeometry(0.26 - i * 0.04, 0), i < 3 ? mat : maneMat);
       ts.position.set(0, -0.48 + i * 0.28, -1.42 - i * 0.58); ts.scale.y = 1.45;
       this.group.add(ts);
     }
@@ -2651,10 +2631,10 @@ class Particle {
     this.life = life;
     this.maxLife = life;
     this.size = size;
-    const geo = new THREE.SphereGeometry(size, 4, 4);
+    const geo = new THREE.OctahedronGeometry(size, 0);  // 8 faces — tiny faceted gem
     const mat = new THREE.MeshStandardMaterial({
-      color, emissive: color, emissiveIntensity: 1.4,
-      transparent: true, opacity: 1,
+      color, emissive: color, emissiveIntensity: 1.6,
+      transparent: true, opacity: 1, flatShading: true,
     });
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.position.copy(pos);
@@ -3056,8 +3036,8 @@ function castFireball(targetPos, fromPlayer) {
     if (targetPos.distanceTo(RIVAL_POS) < 22) rivalGod.takeDamage(25);
   }
   // Spawn fireball projectile
-  const geo = new THREE.SphereGeometry(0.7, 8, 8);
-  const mat = new THREE.MeshStandardMaterial({ color: 0xff4400, emissive: 0xff2200, emissiveIntensity: 2.5, roughness: 0.2 });
+  const geo = new THREE.IcosahedronGeometry(0.7, 1);  // faceted fireball
+  const mat = new THREE.MeshStandardMaterial({ color: 0xff5500, emissive: 0xff2200, emissiveIntensity: 3.0, roughness: 0.15, flatShading: true });
   const ball = new THREE.Mesh(geo, mat);
   const startPos = worldMouse.clone().add(v3(0, 15, 0));
   ball.position.copy(startPos);
@@ -3182,7 +3162,7 @@ function buildCampfire(x, z) {
     scene.add(log);
   });
   const flameMat = new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4400, emissiveIntensity: 2.2, transparent: true, opacity: 0.88 });
-  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.36, 7, 7), flameMat);
+  const flame = new THREE.Mesh(new THREE.OctahedronGeometry(0.36, 0), flameMat);
   flame.scale.y = 1.5;
   flame.position.set(x, h + 0.68, z);
   scene.add(flame);
@@ -3203,20 +3183,22 @@ function buildClouds() {
     const grp = new THREE.Group();
     // Per-cloud material so opacity can vary cloud-to-cloud
     const cloudMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, transparent: true, opacity: rand(0.55, 0.88),
-      roughness: 1.0, metalness: 0, emissive: 0x8899bb, emissiveIntensity: 0.06,
+      color: 0xeef4ff, transparent: true, opacity: rand(0.65, 0.92),
+      roughness: 0.95, metalness: 0, emissive: 0x99aabf, emissiveIntensity: 0.08,
+      flatShading: true,
     });
-    const numPuffs = 5 + Math.floor(Math.random() * 5);
-    const cw = rand(8, 16); // cloud half-width
+    const numPuffs = 4 + Math.floor(Math.random() * 4);
+    const cw = rand(8, 18); // cloud half-width
     for (let j = 0; j < numPuffs; j++) {
       const t = j / (numPuffs - 1); // 0..1 across the cloud
       // Bigger puffs in the middle, smaller at ends — natural cumulus silhouette
       const mid  = 1.0 - Math.abs(t - 0.5) * 2.0;
       const r    = rand(4, 7) + mid * rand(3, 6);
-      const puff = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 7), cloudMat);
-      // Flat bottoms: puffs sit on a common base line, only bulge upward
+      // IcosahedronGeometry detail=1 → 80 flat triangles → beautiful faceted cloud
+      const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), cloudMat);
       puff.position.set((t - 0.5) * cw * 2 + rand(-2, 2), r * rand(0.15, 0.4), rand(-4, 4));
-      puff.scale.y = rand(0.50, 0.68);
+      puff.scale.y = rand(0.42, 0.62);
+      puff.rotation.y = Math.random() * Math.PI;
       grp.add(puff);
     }
     const angle = Math.random() * Math.PI * 2;
@@ -3893,7 +3875,7 @@ function initScene() {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.25;
   renderer.physicallyCorrectLights = true;
 
   scene = new THREE.Scene();
@@ -4105,25 +4087,18 @@ function initScene() {
     });
     composer = new THREE.EffectComposer(renderer, rt);
     composer.addPass(new THREE.RenderPass(scene, camera));
+    // Very subtle bloom — just enough to make emissive particles glow
     const bloom = new THREE.UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      0.38,  // strength — gentle glow, not haze
-      0.45,  // radius
-      0.72   // threshold — only genuinely bright pixels bloom
+      0.22,  // very gentle strength
+      0.35,  // tight radius
+      0.85   // high threshold — only genuinely bright emissive elements bloom
     );
+    bloom.renderToScreen = true;
     composer.addPass(bloom);
     window._bloomPass = bloom;
-
-    // God rays pass (screen-space radial light shafts from sun)
-    const godRaysPass = new THREE.ShaderPass(GodRaysShader);
-    composer.addPass(godRaysPass);
-    window._godRaysPass = godRaysPass;
-
-    // Color grade + vignette + film grain (final look)
-    const gradePass = new THREE.ShaderPass(ColorGradeShader);
-    gradePass.renderToScreen = true;
-    composer.addPass(gradePass);
-    window._gradePass = gradePass;
+    window._godRaysPass = null;
+    window._gradePass = null;
   } catch (e) {
     console.warn('Bloom unavailable:', e.message);
     composer = null;
@@ -4345,31 +4320,31 @@ class RivalGod {
     this.totem.castShadow=true; scene.add(this.totem);
 
     // Skull cap
-    this.skullMesh=new THREE.Mesh(new THREE.SphereGeometry(0.75,8,7),skull);
+    this.skullMesh=new THREE.Mesh(new THREE.IcosahedronGeometry(0.75,1),skull);
     this.skullMesh.position.set(RIVAL_POS.x,h+10.8,RIVAL_POS.z); scene.add(this.skullMesh);
     [[-0.4,0],[0.4,0]].forEach(([ox])=>{
-      const horn=new THREE.Mesh(new THREE.ConeGeometry(0.14,0.9,5),dark);
+      const horn=new THREE.Mesh(new THREE.ConeGeometry(0.14,0.9,4),dark);
       horn.position.set(RIVAL_POS.x+ox,h+11.55,RIVAL_POS.z); horn.rotation.z=ox*0.5; scene.add(horn);
     });
     [-0.28,0.28].forEach(ox=>{
-      const e=new THREE.Mesh(new THREE.SphereGeometry(0.1,6,6),eyeM);
+      const e=new THREE.Mesh(new THREE.OctahedronGeometry(0.1,0),eyeM);
       e.position.set(RIVAL_POS.x+ox,h+10.85,RIVAL_POS.z+0.65); scene.add(e);
     });
 
     // Evil orb
-    this.orb=new THREE.Mesh(new THREE.SphereGeometry(0.42,10,10),orbM);
+    this.orb=new THREE.Mesh(new THREE.IcosahedronGeometry(0.42,1),orbM);
     this.orb.position.set(RIVAL_POS.x,h+7,RIVAL_POS.z); scene.add(this.orb);
     this.orbLight=new THREE.PointLight(0xaa0022,2.2,32);
     this.orbLight.position.copy(this.orb.position); scene.add(this.orbLight);
 
-    // Rival dark creature
+    // Rival dark creature — boxy, angular
     const creatureGroup=new THREE.Group();
-    const bodyM=new THREE.MeshStandardMaterial({color:0x1e0033,roughness:0.72,metalness:0.1,emissive:0x0a0015,emissiveIntensity:0.4});
+    const bodyM=new THREE.MeshStandardMaterial({color:0x1e0033,roughness:0.72,metalness:0.1,emissive:0x0a0015,emissiveIntensity:0.4,flatShading:true});
     const body=new THREE.Mesh(new THREE.BoxGeometry(2.8,3.2,2.2),bodyM); body.position.y=1.8; body.castShadow=true; creatureGroup.add(body);
-    const headM=new THREE.Mesh(new THREE.SphereGeometry(1.05,8,8),bodyM); headM.position.set(0,4.0,0); creatureGroup.add(headM);
+    const headM=new THREE.Mesh(new THREE.IcosahedronGeometry(1.05,1),bodyM); headM.position.set(0,4.0,0); creatureGroup.add(headM);
     [-0.45,0.45].forEach(ox=>{
-      const horn=new THREE.Mesh(new THREE.ConeGeometry(0.15,0.85,5),dark); horn.position.set(ox,5.0,0); horn.rotation.z=ox*0.3; creatureGroup.add(horn);
-      const eye=new THREE.Mesh(new THREE.SphereGeometry(0.13,6,6),eyeM); eye.position.set(ox,4.05,0.9); creatureGroup.add(eye);
+      const horn=new THREE.Mesh(new THREE.ConeGeometry(0.15,0.85,4),dark); horn.position.set(ox,5.0,0); horn.rotation.z=ox*0.3; creatureGroup.add(horn);
+      const eye=new THREE.Mesh(new THREE.OctahedronGeometry(0.13,0),eyeM); eye.position.set(ox,4.05,0.9); creatureGroup.add(eye);
     });
     const ch=getTerrainHeight(RIVAL_POS.x+14,RIVAL_POS.z+6);
     creatureGroup.position.set(RIVAL_POS.x+14,ch+1,RIVAL_POS.z+6);
@@ -4379,13 +4354,13 @@ class RivalGod {
     this.creatureAge=0;
 
     // 4 dark rival villagers
-    const dVill=new THREE.MeshStandardMaterial({color:0x332211,roughness:0.85,metalness:0});
+    const dVill=new THREE.MeshStandardMaterial({color:0x2a1408,roughness:0.85,metalness:0,flatShading:true});
     for(let i=0;i<4;i++){
       const a=(i/4)*Math.PI*2;
       const rx=RIVAL_POS.x+Math.cos(a)*rand(5,11);
       const rz=RIVAL_POS.z+Math.sin(a)*rand(5,11);
       const rh=getTerrainHeight(rx,rz);
-      const m=new THREE.Mesh(new THREE.CapsuleGeometry(0.38,0.75,4,7),dVill);
+      const m=new THREE.Mesh(new THREE.CapsuleGeometry(0.38,0.75,2,5),dVill);
       m.position.set(rx,rh+0.75,rz); m.castShadow=true; scene.add(m);
       this._rivalVillagers.push({mesh:m,alive:true,wander:new THREE.Vector3(rx,rh,rz),t:rand(0,8)});
     }
@@ -4415,8 +4390,8 @@ class RivalGod {
       setTimeout(()=>{
         const tx=VILLAGE_POS.x+rand(-14,14), tz=VILLAGE_POS.z+rand(-14,14);
         const tgt=new THREE.Vector3(tx,getTerrainHeight(tx,tz),tz);
-        const geo=new THREE.SphereGeometry(0.68,8,8);
-        const mat=new THREE.MeshStandardMaterial({color:0x550000,emissive:0xaa0022,emissiveIntensity:2.6});
+        const geo=new THREE.IcosahedronGeometry(0.68,1);
+        const mat=new THREE.MeshStandardMaterial({color:0x550000,emissive:0xaa0022,emissiveIntensity:2.8,flatShading:true});
         const ball=new THREE.Mesh(geo,mat);
         const sx=RIVAL_POS.x+rand(-4,4), sz=RIVAL_POS.z+rand(-4,4);
         ball.position.set(sx,getTerrainHeight(sx,sz)+10,sz);
