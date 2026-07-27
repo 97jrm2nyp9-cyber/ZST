@@ -134,7 +134,7 @@ canvas { display: block; }
 
 /* Controls hint */
 #controls {
-  position: absolute; bottom: 60px; right: 16px;
+  position: absolute; bottom: 24px; right: 180px;
   background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 6px; padding: 8px 12px;
   color: rgba(255,255,255,0.5); font-size: 10px; line-height: 1.7;
@@ -180,11 +180,23 @@ canvas { display: block; }
 #civ-time { font-size: 10px; letter-spacing: 1px; color: rgba(255,255,255,0.55); margin-top: 2px; }
 #weather-badge { position:absolute; top:50px; left:50%; transform:translateX(-50%); font-size:13px; color:rgba(255,255,255,0.7); pointer-events:none; text-shadow:0 1px 6px #000; letter-spacing:1px; transition:opacity 1s; }
 .prayer-bubble { position:absolute; font-size:16px; pointer-events:none; transform:translate(-50%,-100%); white-space:nowrap; text-shadow:0 0 8px rgba(255,220,120,0.9); animation:prayFloat 0.4s ease-out; }
+/* Creature desire bubble — makes the creature's inner state legible at a glance */
+.creature-thought {
+  position:absolute; pointer-events:none; transform:translate(-50%,-100%);
+  white-space:nowrap; font-family:Georgia,serif; font-size:11px; letter-spacing:1px;
+  color:rgba(220,250,255,0.92); background:rgba(6,18,26,0.66);
+  border:1px solid rgba(140,220,255,0.28); border-radius:12px; padding:3px 10px;
+  text-shadow:0 1px 4px #000; backdrop-filter:blur(3px);
+  transition:opacity 0.3s;
+}
+.creature-thought b { color:#8fe9ff; font-weight:normal; margin-right:4px; }
 @keyframes prayFloat { from{opacity:0;transform:translate(-50%,-80%)} to{opacity:1;transform:translate(-50%,-100%)} }
 #resource-panel { position:absolute; left:20px; bottom:180px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.12); border-radius:6px; padding:6px 10px; pointer-events:none; }
 .res-row { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,0.7); font-size:11px; letter-spacing:1px; }
+/* Top-right under the rival panel — at bottom-right it sat underneath both the
+   miracle buttons and the controls legend. */
 #minimap {
-  position: absolute; bottom: 22px; right: 22px;
+  position: absolute; top: 96px; right: 16px;
   border-radius: 50%; border: 2px solid rgba(255,255,255,0.22);
   box-shadow: 0 0 18px rgba(0,0,0,0.7), inset 0 0 8px rgba(0,0,0,0.4);
   opacity: 0.88; pointer-events: none;
@@ -301,6 +313,10 @@ canvas { display: block; }
   <div id="civ-panel">
     <div id="civ-era">Primitive</div>
     <div id="civ-time">Day 1 · Dawn</div>
+    <div id="territory-row" style="margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.12);font-size:11px;letter-spacing:2px;">
+      <span style="opacity:0.5;font-size:9px;">VILLAGES</span>
+      <span id="territory-count" style="margin-left:6px;">0 / 0 · 0</span>
+    </div>
   </div>
 
   <div id="weather-badge"></div>
@@ -393,108 +409,32 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
 function v3(x, y, z) { return new THREE.Vector3(x, y, z); }
 
-// ─── Procedural canvas textures ──────────────────────────────────────────────
-const TEX = {};
-
-function makeTex(w, h, fn) {
-  const c = Object.assign(document.createElement('canvas'), { width: w, height: h });
-  fn(c.getContext('2d'), w, h);
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  return t;
-}
-
-function initTextures() {
-  // Stone wall — irregular blocks with mortar lines
-  TEX.stone = makeTex(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#8a8070'; ctx.fillRect(0, 0, w, h);
-    const bw = 48, bh = 26;
-    for (let row = 0; row <= h/bh + 1; row++) {
-      const off = (row & 1) ? bw*0.5 : 0;
-      for (let col = -1; col <= w/bw + 1; col++) {
-        const v = 108 + Math.random()*50 | 0;
-        ctx.fillStyle = `rgb(${v},${v-7},${v-17})`;
-        ctx.fillRect(col*bw + off + 1, row*bh + 1, bw - 2, bh - 2);
-      }
-    }
-    ctx.strokeStyle = '#524838'; ctx.lineWidth = 1.5;
-    for (let row = 0; row <= h/bh + 1; row++) {
-      const off = (row & 1) ? bw*0.5 : 0;
-      for (let col = -1; col <= w/bw + 1; col++)
-        ctx.strokeRect(col*bw + off, row*bh, bw, bh);
-    }
-    for (let i = 0; i < 3000; i++) {
-      ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.06})`;
-      ctx.fillRect(Math.random()*w|0, Math.random()*h|0, 2, 1);
-    }
-  });
-
-  // Thatched roof — diagonal straw strands
-  TEX.thatch = makeTex(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#b08820'; ctx.fillRect(0, 0, w, h);
-    for (let y = -h; y < h*2; y += 5) {
-      const v = 138 + Math.random()*45 | 0;
-      ctx.strokeStyle = `rgb(${v},${v*0.73|0},${v*0.24|0})`;
-      ctx.lineWidth = 1 + Math.random();
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y + w*0.58); ctx.stroke();
-    }
-    for (let i = 0; i < 1500; i++) {
-      ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.07})`;
-      ctx.fillRect(Math.random()*w|0, Math.random()*h|0, 1, 3);
-    }
-  });
-
-  // Tree bark — horizontal grain
-  TEX.bark = makeTex(64, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#4a2e12'; ctx.fillRect(0, 0, w, h);
-    for (let y = 0; y < h; y += 5) {
-      ctx.strokeStyle = `rgba(0,0,0,${0.18 + Math.random()*0.3})`;
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(0, y + Math.random()*3);
-      for (let x = 0; x <= w; x += 8)
-        ctx.lineTo(x, y + Math.random()*5);
-      ctx.stroke();
-    }
-    for (let i = 0; i < 800; i++) {
-      ctx.fillStyle = `rgba(220,160,60,${Math.random()*0.04})`;
-      ctx.fillRect(Math.random()*w|0, Math.random()*h|0, 1, 1);
-    }
-  });
-
-  // Creature fur — short directional strokes
-  TEX.fur = makeTex(128, 128, (ctx, w, h) => {
-    ctx.fillStyle = '#c8a050'; ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 800; i++) {
-      const x = Math.random()*w, y = Math.random()*h;
-      const v = 150 + Math.random()*70 | 0;
-      ctx.strokeStyle = `rgba(${v},${v*0.68|0},${v*0.28|0},0.55)`;
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + rand(-2,2), y + rand(2,5)); ctx.stroke();
-    }
-  });
-}
+// ─── Materials ───────────────────────────────────────────────────────────────
+// (Procedural canvas textures were removed — the flat-shaded art direction uses
+//  solid colours, and the photo-ish noise they added fought the low-poly read.)
 
 function initBlockMats() {
+  // Flat, saturated, untextured. Every block is one solid colour so structures
+  // read as bold silhouettes rather than a noisy grey mass at god-view distance.
+  const M = (color, o = {}) => new THREE.MeshStandardMaterial(
+    Object.assign({ color, roughness: 0.88, metalness: 0.0, flatShading: true }, o));
   window.BLK = {
-    stone:    new THREE.MeshStandardMaterial({ color:0x8a8070, roughness:0.88, metalness:0.02 }),
-    cobble:   new THREE.MeshStandardMaterial({ color:0x707060, roughness:0.95, metalness:0.0  }),
-    wood:     new THREE.MeshStandardMaterial({ color:0x7a5020, roughness:0.88, metalness:0.0, map: TEX.bark }),
-    plank:    new THREE.MeshStandardMaterial({ color:0xc8922a, roughness:0.82, metalness:0.0  }),
-    brick:    new THREE.MeshStandardMaterial({ color:0xb05030, roughness:0.84, metalness:0.0  }),
-    marble:   new THREE.MeshStandardMaterial({ color:0xe8e0d0, roughness:0.45, metalness:0.04 }),
-    sandstone:new THREE.MeshStandardMaterial({ color:0xd4bc78, roughness:0.78, metalness:0.0  }),
-    obsidian: new THREE.MeshStandardMaterial({ color:0x1a0828, roughness:0.30, metalness:0.35,
-                emissive:new THREE.Color(0x110022), emissiveIntensity:0.5 }),
-    gold:     new THREE.MeshStandardMaterial({ color:0xffd700, roughness:0.20, metalness:0.80,
-                emissive:new THREE.Color(0xaa8800), emissiveIntensity:0.3 }),
-    crystal:  new THREE.MeshStandardMaterial({ color:0x88ccff, roughness:0.05, metalness:0.6,
-                transparent:true, opacity:0.80, emissive:new THREE.Color(0x2244aa), emissiveIntensity:0.6 }),
-    thatch:   new THREE.MeshStandardMaterial({ color:0xc8a030, roughness:0.95, metalness:0.0, map: TEX.thatch }),
-    darkstone:new THREE.MeshStandardMaterial({ color:0x3a3040, roughness:0.80, metalness:0.08 }),
+    stone:    M(0x9a9184),
+    cobble:   M(0x7b7668, { roughness: 0.95 }),
+    wood:     M(0x8a5a26),
+    plank:    M(0xd19a34, { roughness: 0.82 }),
+    brick:    M(0xc25636, { roughness: 0.84 }),
+    marble:   M(0xf2ece0, { roughness: 0.42, metalness: 0.04 }),
+    sandstone:M(0xe0c47e, { roughness: 0.78 }),
+    obsidian: M(0x201033, { roughness: 0.30, metalness: 0.35,
+                emissive: new THREE.Color(0x140028), emissiveIntensity: 0.5 }),
+    gold:     M(0xffd23f, { roughness: 0.20, metalness: 0.80,
+                emissive: new THREE.Color(0xaa8800), emissiveIntensity: 0.3 }),
+    crystal:  M(0x7fd4ff, { roughness: 0.05, metalness: 0.6, transparent: true, opacity: 0.82,
+                emissive: new THREE.Color(0x2a5ccc), emissiveIntensity: 0.7 }),
+    thatch:   M(0xd9a533, { roughness: 0.95 }),
+    darkstone:M(0x453a52, { roughness: 0.80, metalness: 0.08 }),
   };
-  // Set repeat on mapped textures
-  if (window.BLK.wood.map) window.BLK.wood.map.repeat.set(0.5,0.5);
-  if (window.BLK.thatch.map) window.BLK.thatch.map.repeat.set(0.5,0.5);
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -508,7 +448,7 @@ const VILLAGE_POS    = new THREE.Vector3(18, 0, 10);
 
 // ─── Globals ─────────────────────────────────────────────────────────────────
 let renderer, scene, camera, composer;
-let camDist  = 90;
+let camDist  = 112;
 let camTheta = -0.4;   // azimuth (radians around Y)
 let camPhi   = 0.72;   // elevation above horizon (radians)
 let camTarget;         // initialized in initScene after THREE is ready
@@ -973,8 +913,11 @@ let gameTime         = 0;    // total seconds elapsed
 let civilizationEra  = 0;    // 0-5
 let eraBuildings     = [];   // {type,x,z} already placed
 let nextBuildTimer   = rand(20, 40);
-let sunAngle         = -Math.PI * 0.5;  // start at noon (-PI/2 = top)
-let _daylight        = 1.0;  // 0=night, 1=noon
+// sunH = sin(sunAngle - PI/2), so 2.42 gives sunH ≈ 0.75 — a high golden-hour sun.
+// (The old -PI/2 produced sunH = 0, i.e. the game always booted at dusk with the
+//  key light at zero intensity, which is why everything looked murky.)
+let sunAngle         = 2.42;
+let _daylight        = 1.0;  // 0=night, 1=peak
 
 const ERAS = [
   { id:0, name:'Primitive',   minTime:0,    minLove:0.00, minLevel:0 },
@@ -1118,9 +1061,15 @@ function buildTerrain() {
     // Central dome guarantees solid land for the village & rival
     const dome  = Math.max(0, 1 - r * 1.3);
     let height = hBase * 22 * fade + ridge * 7 * fade * Math.max(0, hBase) + dome * 7 * fade;
-    // Beach shelf — compress heights near sea level into gentle flats
-    if (height > -0.5 && height < 2.4) height = -0.5 + (height + 0.5) * 0.6;
-    height = Math.max(SEA_LEVEL - 2.5, height);
+    // No beach-shelf flattening: compressing heights toward the waterline left a
+    // wide near-coplanar apron at the water plane, which z-fought into stripes.
+    // The coast now rises cleanly out of the sea.
+    //
+    // Carve a real seabed. `Math.max(SEA_LEVEL - 2.5, h)` was a FLOOR, so every
+    // vertex outside the island landed at y=0 — above the water plane — and the
+    // whole ocean rendered as a tan slab of dry sand. Sink it by falloff instead.
+    height -= Math.pow(1 - fade, 2.5) * 13.0;
+    height = Math.max(SEA_LEVEL - 16, height);
     pos.setY(i, height);
     terrainHeightData[i] = height;
   }
@@ -1130,23 +1079,27 @@ function buildTerrain() {
   const nrm    = geo.attributes.normal;
   const colors = new Float32Array(pos.count * 3);
   const cTmp   = new THREE.Color();
-  const beach   = new THREE.Color().setHSL(0.11, 0.72, 0.72);   // warm golden sand
-  const grassLo = new THREE.Color().setHSL(0.28, 0.82, 0.36);   // vivid spring green
-  const grassHi = new THREE.Color().setHSL(0.30, 0.75, 0.28);   // deeper highland green
-  const rockA   = new THREE.Color().setHSL(0.06, 0.22, 0.52);   // warm grey rock
-  const rockB   = new THREE.Color().setHSL(0.07, 0.15, 0.40);   // darker rock
-  const snowCol = new THREE.Color().setHSL(0.60, 0.25, 0.92);   // cool blue-white snow
+  const beach   = new THREE.Color().setHSL(0.10, 0.66, 0.58);   // warm golden sand
+  const grassLo = new THREE.Color().setHSL(0.27, 0.80, 0.38);   // vivid spring green
+  const grassHi = new THREE.Color().setHSL(0.31, 0.72, 0.27);   // deeper highland green
+  const rockA   = new THREE.Color().setHSL(0.07, 0.26, 0.46);   // warm grey rock
+  const rockB   = new THREE.Color().setHSL(0.06, 0.18, 0.33);   // darker rock
+  const snowCol = new THREE.Color().setHSL(0.58, 0.22, 0.90);   // cool blue-white snow
   const sstep = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
   for (let i = 0; i < pos.count; i++) {
     const h = pos.getY(i);
     const slope    = 1 - clamp(nrm.getY(i), 0, 1);
-    const rockBias = sstep(0.28, 0.58, slope);
+    const rockBias = sstep(0.30, 0.60, slope);
     cTmp.copy(beach);
-    cTmp.lerp(grassLo, sstep(1.2, 3.8, h) * (1 - rockBias));
-    cTmp.lerp(grassHi, sstep(5.0, 10.0, h) * (1 - rockBias * 0.8));
+    // Grass takes over almost immediately above the waterline — a wide pale sand
+    // shelf was reading as a concrete apron ringing the whole island.
+    cTmp.lerp(grassLo, sstep(0.35, 2.0, h) * (1 - rockBias));
+    cTmp.lerp(grassHi, sstep(5.0, 11.0, h) * (1 - rockBias * 0.8));
     const rockMix = rockA.clone().lerp(rockB, Math.random() * 0.4);
-    cTmp.lerp(rockMix, clamp(sstep(10.0, 16.0, h) + rockBias * sstep(2.0, 5.5, h), 0, 1));
-    cTmp.lerp(snowCol, sstep(15.0, 20.0, h));
+    // Rock comes from STEEPNESS far more than altitude. Peaks here reach ~25-30,
+    // so the old height bands painted the whole central dome grey, then white.
+    cTmp.lerp(rockMix, clamp(sstep(25.0, 31.0, h) + rockBias * sstep(2.5, 7.0, h), 0, 1));
+    cTmp.lerp(snowCol, sstep(34.0, 42.0, h));   // effectively off — this is a warm island
     colors[i*3]   = cTmp.r;
     colors[i*3+1] = cTmp.g;
     colors[i*3+2] = cTmp.b;
@@ -1195,98 +1148,128 @@ function snapToTerrain(obj, yOffset = 0) {
 }
 
 // ─── Water ───────────────────────────────────────────────────────────────────
+// Stylised, not simulated. The previous shader stacked foam + caustics + glints
+// on a 48-segment plane, so every effect got linearly interpolated across ~8-unit
+// triangles and broke into angular white blotches. This version keeps one idea —
+// depth-banded colour with a crisp shoreline — and reads a real depth map baked
+// from the terrain, which is what actually sells stylised water.
 function buildWater() {
-  const geo = new THREE.PlaneGeometry(400, 400, 48, 48);
+  const SIZE = 1100;   // extends past the horizon islands so they sit in ocean
+  const geo = new THREE.PlaneGeometry(SIZE, SIZE, 220, 220);
   geo.rotateX(-Math.PI / 2);
+
+  // Bake an 8-bit depth map (0 = deep, 255 = shore) by sampling the terrain.
+  // 8-bit + LinearFilter avoids the float-texture-filtering extension entirely.
+  const R = 256, dData = new Uint8Array(R * R);
+  for (let j = 0; j < R; j++) {
+    for (let i = 0; i < R; i++) {
+      const wx = (i / (R - 1) - 0.5) * TERRAIN_SIZE;
+      const wz = (j / (R - 1) - 0.5) * TERRAIN_SIZE;
+      const h  = getTerrainHeight(wx, wz);
+      dData[j * R + i] = Math.round(clamp(1 - clamp(-h, 0, 6) / 6, 0, 1) * 255);
+    }
+  }
+  const dTex = new THREE.DataTexture(dData, R, R, THREE.LuminanceFormat);
+  dTex.minFilter = dTex.magFilter = THREE.LinearFilter;
+  dTex.wrapS = dTex.wrapT = THREE.ClampToEdgeWrapping;
+  dTex.needsUpdate = true;
+
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uAlignment: { value: 0 } },
-    transparent: true, depthWrite: false,
+    fog: true,
+    uniforms: THREE.UniformsUtils.merge([
+      THREE.UniformsLib.fog,
+      {
+        uTime:     { value: 0 },
+        uAlignment:{ value: 0 },
+        uDepth:    { value: null },
+        uTerrSize: { value: TERRAIN_SIZE },
+        uSunDir:   { value: new THREE.Vector3(0.5, 0.7, 0.4) },
+        uSunCol:   { value: new THREE.Color(1.0, 0.88, 0.62) },
+      },
+    ]),
+    // Opaque. A translucent sheet just revealed the tan sea floor underneath and
+    // muddied every depth band — the bands themselves are the effect.
+    transparent: false, depthWrite: true,
     vertexShader: `
+      #include <fog_pars_vertex>
       uniform float uTime;
       varying float vWave;
       varying vec2  vUV;
       varying vec3  vWorldPos;
       void main(){
         vec3 p = position;
-        float w = sin(p.x*0.22+uTime*1.1)*cos(p.z*0.19+uTime*0.85)*0.55
-                 +sin(p.x*0.47+uTime*1.6)*0.22
-                 +sin(p.x*0.88+p.z*0.72+uTime*2.3)*0.10
-                 +sin(p.x*0.14+p.z*0.31+uTime*0.75)*0.30;
+        // Kill the swell in the distance — at grazing angles a tessellated wave
+        // aliases into horizontal scanline moiré across the whole horizon.
+        float far = 1.0 - smoothstep(150.0, 330.0, length(p.xz));
+        float w = (sin(p.x*0.085 + uTime*0.85) * cos(p.z*0.072 + uTime*0.62) * 0.42
+                +  sin(p.x*0.19  + p.z*0.14 + uTime*1.25) * 0.16) * far;
         p.y += w; vWave = w; vUV = vec2(p.x, p.z);
         vWorldPos = (modelMatrix * vec4(p,1.0)).xyz;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p,1.0);
+        vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
       }
     `,
     fragmentShader: `
       precision highp float;
-      uniform float uAlignment, uTime;
+      #include <fog_pars_fragment>
+      uniform float     uAlignment, uTime, uTerrSize;
+      uniform sampler2D uDepth;
+      uniform vec3      uSunDir, uSunCol;
       varying float vWave;
       varying vec2  vUV;
       varying vec3  vWorldPos;
 
-      float h21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5);}
-      float ns(vec2 p){vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);}
-      float fbm2(vec2 p){return ns(p)*0.5+ns(p*2.1+1.7)*0.5;}
-
       void main(){
         float evil = clamp(-uAlignment, 0.0, 1.0);
 
-        // Bold vivid water colours — deep royal blue to vibrant cyan
-        vec3 deep  = mix(vec3(0.02,0.08,0.48), vec3(0.14,0.01,0.08), evil*0.75);
-        vec3 mid   = mix(vec3(0.05,0.28,0.72), vec3(0.28,0.04,0.10), evil*0.65);
-        vec3 crest = mix(vec3(0.42,0.88,1.00), vec3(0.70,0.22,0.22), evil*0.60);
-        vec3 foam  = mix(vec3(0.92,0.98,1.00), vec3(0.88,0.65,0.65), evil*0.5);
+        // Sample baked depth: 1 at the shoreline, 0 in deep water.
+        vec2 huv = vUV / uTerrSize + 0.5;
+        float shoreT = 0.0;
+        if (huv.x > 0.0 && huv.x < 1.0 && huv.y > 0.0 && huv.y < 1.0)
+          shoreT = texture2D(uDepth, huv).r;
+        float depth = 1.0 - shoreT;
 
-        float wN01 = clamp(vWave*1.9+0.45, 0.0, 1.0);
-        vec3 col = mix(deep, mid, wN01);
+        // Three flat depth bands — the classic stylised-water read
+        vec3 shallow = mix(vec3(0.34,0.84,0.90), vec3(0.60,0.25,0.29), evil*0.7);
+        vec3 midCol  = mix(vec3(0.07,0.42,0.80), vec3(0.32,0.06,0.15), evil*0.7);
+        vec3 deepCol = mix(vec3(0.02,0.13,0.44), vec3(0.12,0.01,0.07), evil*0.7);
+        vec3 col = mix(shallow, midCol, smoothstep(0.10, 0.48, depth));
+        col      = mix(col,     deepCol, smoothstep(0.45, 0.96, depth));
 
-        // Foam: noise-shaped, not just smoothstep
-        float foamMask = smoothstep(0.10, 0.50, vWave);
-        float foamNoise = fbm2(vUV*0.55 + uTime*0.08);
-        foamMask *= 0.55 + foamNoise*0.45;
-        col = mix(col, crest, foamMask*0.7);
-        col = mix(col, foam,  smoothstep(0.38, 0.55, foamMask)*0.5);
+        // Crisp shoreline foam band that breathes with the swell
+        float surge = sin(uTime*1.5 + vUV.x*0.10 + vUV.y*0.08) * 0.5 + 0.5;
+        float foamB = smoothstep(0.55, 0.97, shoreT * (0.78 + surge*0.34));
+        col = mix(col, vec3(0.93,0.99,1.00), foamB * 0.85);
 
-        // Animated sub-surface banding
-        float band = sin(vUV.x*0.12+uTime*0.52)*sin(vUV.y*0.10+uTime*0.44)*0.5+0.5;
-        col += mix(vec3(0.08,0.22,0.55), vec3(0.35,0.03,0.03), evil) * band * 0.08;
+        // Soft crest lightening — subtle, no hard threshold
+        col += vec3(0.09,0.18,0.24) * smoothstep(0.05, 0.40, vWave);
 
-        // Hex caustic pattern (two offset grids)
-        vec2 cu1 = vUV*0.30+vec2(uTime*0.11, uTime*0.08);
-        vec2 cu2 = vUV*0.24-vec2(uTime*0.07, uTime*0.12);
-        float caust = ns(cu1)*ns(cu1+0.3)*ns(cu2)*ns(cu2+0.5);
-        col += mix(vec3(0.20,0.50,1.00), vec3(0.65,0.12,0.12), evil) * caust * 0.10;
 
-        // Sparkle glints — sharp high-frequency points
-        float glintN = ns(vUV*8.5 + uTime*0.4);
-        float glint  = step(0.93, glintN) * (glintN-0.93)/0.07;
-        col += mix(vec3(1.0,0.95,0.80), vec3(1.0,0.40,0.40), evil) * glint * 2.5;
+        // Same distance falloff as the vertex swell, so detail dies before the
+        // horizon instead of aliasing into stripes.
+        float far = 1.0 - smoothstep(150.0, 330.0, length(vWorldPos.xz));
 
-        // Wave normals (finite differences)
-        float eps = 0.85;
-        float wx1=sin((vUV.x+eps)*0.22+uTime*1.1)*cos(vUV.y*0.19+uTime*0.85)*0.55+sin((vUV.x+eps)*0.47+uTime*1.6)*0.22+sin((vUV.x+eps)*0.88+vUV.y*0.72+uTime*2.3)*0.10;
-        float wx2=sin((vUV.x-eps)*0.22+uTime*1.1)*cos(vUV.y*0.19+uTime*0.85)*0.55+sin((vUV.x-eps)*0.47+uTime*1.6)*0.22+sin((vUV.x-eps)*0.88+vUV.y*0.72+uTime*2.3)*0.10;
-        float wz1=sin(vUV.x*0.22+uTime*1.1)*cos((vUV.y+eps)*0.19+uTime*0.85)*0.55+sin(vUV.x*0.47+uTime*1.6)*0.22+sin(vUV.x*0.88+(vUV.y+eps)*0.72+uTime*2.3)*0.10;
-        float wz2=sin(vUV.x*0.22+uTime*1.1)*cos((vUV.y-eps)*0.19+uTime*0.85)*0.55+sin(vUV.x*0.47+uTime*1.6)*0.22+sin(vUV.x*0.88+(vUV.y-eps)*0.72+uTime*2.3)*0.10;
-        vec3 wNorm = normalize(vec3((wx2-wx1)*3.5, 2.0, (wz2-wz1)*3.5));
-
-        // Sun specular highlight (main + micro)
-        vec3 sunDir  = normalize(vec3(0.55, 1.0, 0.4));
+        // One broad sun specular from the real sun direction
+        vec3 n = normalize(vec3(
+          -cos(vUV.x*0.085 + uTime*0.85) * 0.036 * far,
+           1.0,
+           sin(vUV.y*0.072 + uTime*0.62) * 0.030 * far));
         vec3 viewDir = normalize(cameraPosition - vWorldPos);
-        float spec   = pow(max(dot(reflect(-sunDir,wNorm), viewDir), 0.0), 90.0) * 2.8;
-        float spec2  = pow(max(dot(reflect(-sunDir,wNorm), viewDir), 0.0), 180.0) * 4.0;
-        col += mix(vec3(1.0,0.96,0.84), vec3(1.0,0.60,0.40), evil) * (spec+spec2);
+        float spec = pow(max(dot(reflect(-normalize(uSunDir), n), viewDir), 0.0), 64.0);
+        col += uSunCol * spec * 1.3 * far;
 
-        // Fresnel rim — sky reflection at glancing angle
-        float NdotV = max(dot(viewDir, vec3(0,1,0)), 0.0);
-        float fres  = pow(1.0 - NdotV, 5.0) * 0.50;
-        col += mix(vec3(0.20,0.42,0.85), vec3(0.50,0.10,0.22), evil) * fres;
+        // Fresnel sky reflection at grazing angles
+        float fres = pow(1.0 - max(dot(viewDir, vec3(0,1,0)), 0.0), 4.0);
+        col = mix(col, mix(vec3(0.52,0.72,0.95), vec3(0.42,0.14,0.22), evil), fres*0.45);
 
-        float alpha = 0.82 + foamMask*0.14;
-        gl_FragColor = vec4(col, alpha);
+        gl_FragColor = vec4(col, 1.0);
+        #include <fog_fragment>
       }
     `,
   });
+  // UniformsUtils.merge clones values, so assign the texture after merging
+  mat.uniforms.uDepth.value = dTex;
   waterMesh = new THREE.Mesh(geo, mat);
   waterMesh.position.y = SEA_LEVEL - 0.4;
   scene.add(waterMesh);
@@ -1465,7 +1448,14 @@ function buildGrass() {
   const BH = 0.72;
   // PlaneGeometry lies in XY plane → upright in world with Y-rotation only
   const geo  = new THREE.PlaneGeometry(0.38, BH);
-  const mat  = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, vertexColors: true });
+  // vertexColors is required for setColorAt to reach color_fragment, but that
+  // also enables `vColor *= color` in color_vertex — with no `color` attribute
+  // WebGL feeds (0,0,0) and every blade renders BLACK. Supply a white one.
+  const white = new Float32Array(geo.attributes.position.count * 3).fill(1);
+  geo.setAttribute('color', new THREE.BufferAttribute(white, 3));
+  // Lambert, not Basic — unlit grass would ignore the golden key and read as a
+  // flat green rug pasted over properly-lit terrain.
+  const mat  = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, vertexColors: true });
   // Inject wind sway + tip-lightening into the built-in material
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = { value: 0 };
@@ -1505,7 +1495,7 @@ function buildGrass() {
     dummy.updateMatrix();
     mesh.setMatrixAt(placed, dummy.matrix);
 
-    color.setHSL(0.27 + rand(-0.03, 0.03), 0.65 + rand(-0.1, 0.1), 0.24 + rand(-0.04, 0.04));
+    color.setHSL(0.27 + rand(-0.035, 0.035), 0.80 + rand(-0.1, 0.1), 0.34 + rand(-0.05, 0.05));
     mesh.setColorAt(placed, color);
     placed++;
   }
@@ -1612,6 +1602,248 @@ function updateHandColor() {
   godHand.children.forEach(c => {
     if (c.material && c.material.emissive) c.material.emissive.copy(emissive);
   });
+}
+
+// ─── Territory: contested outpost villages ───────────────────────────────────
+// The point of this system is to give every miracle a *reason*. Feeding a
+// starving outpost flips it to you; neglecting one lets the rival take it.
+// Win by holding them all, lose when the rival does.
+let villages        = [];
+let _territoryEnded = false;
+
+const OUTPOST_NAMES = ['Ashford', 'Bramblewick', 'Coldharbour', 'Dunmarsh', 'Elderfen', 'Fallowmere'];
+
+class Outpost {
+  constructor(x, z, name) {
+    this.name   = name;
+    this.pos    = new THREE.Vector3(x, getTerrainHeight(x, z), z);
+    this.belief = rand(-0.16, 0.16);   // -1 rival … +1 player
+    this.radius = 26;
+    this._lastOwner = 'neutral';
+    this._flipCooldown = 0;
+    this.group  = new THREE.Group();
+    this._build();
+    scene.add(this.group);
+  }
+
+  get owner() {
+    return this.belief > 0.34 ? 'player' : this.belief < -0.34 ? 'rival' : 'neutral';
+  }
+
+  _build() {
+    const h = this.pos.y;
+
+    // A few huts so it reads as an actual settlement
+    const nHuts = 3 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < nHuts; i++) {
+      const a  = (i / nHuts) * Math.PI * 2 + rand(-0.3, 0.3);
+      const r  = rand(4.5, 8.5);
+      const hx = this.pos.x + Math.cos(a) * r, hz = this.pos.z + Math.sin(a) * r;
+      buildHut(hx, hz, getTerrainHeight(hx, hz));
+    }
+
+    // Belief pillar — the single most readable ownership signal in the game
+    const beamGeo = new THREE.CylinderGeometry(0.9, 2.0, 34, 6, 1, true);
+    this.beamMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uColor: { value: new THREE.Color(0x8899aa) },
+        uTime:  { value: 0 },
+        uPower: { value: 0.5 },
+      },
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, fog: false,
+      vertexShader: `varying float vY;
+        void main(){ vY = uv.y; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `
+        precision highp float;
+        uniform vec3 uColor; uniform float uTime, uPower; varying float vY;
+        void main(){
+          float fade  = pow(1.0 - vY, 2.8);                       // hugs the ground
+          float pulse = 0.70 + 0.30 * sin(uTime * 2.1 - vY * 8.0); // energy travelling upward
+          gl_FragColor = vec4(uColor, fade * pulse * uPower * 0.55);
+        }`,
+    });
+    this.beam = new THREE.Mesh(beamGeo, this.beamMat);
+    this.beam.position.set(this.pos.x, h + 17, this.pos.z);
+    this.group.add(this.beam);
+
+    // Ground ring marking the outpost's sphere of belief
+    const rg = new THREE.RingGeometry(this.radius - 0.7, this.radius + 0.7, 48);
+    rg.rotateX(-Math.PI / 2);
+    this.ringMat = new THREE.MeshBasicMaterial({
+      color: 0x8899aa, side: THREE.DoubleSide, transparent: true,
+      opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    this.ring = new THREE.Mesh(rg, this.ringMat);
+    this.ring.position.set(this.pos.x, h + 0.2, this.pos.z);
+    this.group.add(this.ring);
+
+    // Totem at the centre
+    const tot = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.35, 0.55, 5.0, 6),
+      new THREE.MeshStandardMaterial({ color: 0x7a5624, roughness: 0.9, flatShading: true }));
+    tot.position.set(this.pos.x, h + 2.5, this.pos.z);
+    tot.castShadow = true;
+    this.group.add(tot);
+
+    this.crystalMat = new THREE.MeshStandardMaterial({
+      color: 0xaabbcc, emissive: 0x445566, emissiveIntensity: 1.6,
+      roughness: 0.1, metalness: 0.3, flatShading: true });
+    this.crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.7, 0), this.crystalMat);
+    this.crystal.position.set(this.pos.x, h + 5.8, this.pos.z);
+    this.group.add(this.crystal);
+
+    this.light = new THREE.PointLight(0x8899aa, 1.4, 34);
+    this.light.position.set(this.pos.x, h + 6.2, this.pos.z);
+    this.group.add(this.light);
+  }
+
+  // Nudge belief. Positive = toward the player.
+  influence(amount) {
+    this.belief = clamp(this.belief + amount, -1, 1);
+  }
+
+  update(dt, t) {
+    // ── Rival pressure: constant drain, scaled by how strong the rival is ──
+    if (rivalGod && !rivalGod.defeated) {
+      const strength = clamp((rivalGod.faith || 50) / 100, 0.3, 1.6);
+      const prox     = clamp(1 - this.pos.distanceTo(RIVAL_POS) / 130, 0.15, 1);
+      this.influence(-dt * 0.016 * strength * prox);
+    }
+
+    // ── Player pull: food in the village feeds belief ──
+    for (const f of foodPiles) {
+      if (f.parent && f.position.distanceTo(this.pos) < this.radius) {
+        this.influence(dt * 0.055);
+        break;
+      }
+    }
+    // Creatures tending the outpost sway it
+    for (const c of creatures) {
+      if (c.group.position.distanceTo(this.pos) < this.radius) {
+        this.influence(dt * 0.020);
+        break;
+      }
+    }
+    // Inside your own influence radius, belief drifts your way
+    if (this.pos.distanceTo(VILLAGE_POS) < influenceRadius) this.influence(dt * 0.012);
+
+    // ── Visuals follow belief ──
+    const b    = this.belief;
+    const col  = new THREE.Color();
+    if (b >= 0) col.setHSL(lerp(0.58, 0.13, b), lerp(0.25, 0.90, b), lerp(0.45, 0.60, b));
+    else        col.setHSL(lerp(0.58, 0.99, -b), lerp(0.25, 0.85, -b), lerp(0.45, 0.48, -b));
+
+    this.beamMat.uniforms.uColor.value.copy(col);
+    this.beamMat.uniforms.uTime.value  = t;
+    // Near-invisible while neutral; blazes once a village commits to a god.
+    this.beamMat.uniforms.uPower.value = 0.10 + Math.abs(b) * 1.15;
+    this.ringMat.color.copy(col);
+    this.ringMat.opacity = 0.07 + Math.abs(b) * 0.26;
+    this.crystalMat.color.copy(col);
+    this.crystalMat.emissive.copy(col);
+    this.crystalMat.emissiveIntensity = 1.1 + Math.abs(b) * 2.2;
+    this.light.color.copy(col);
+    this.light.intensity = 0.9 + Math.abs(b) * 2.6;
+    this.crystal.rotation.y += dt * 0.8;
+    this.crystal.position.y  = this.pos.y + 5.8 + Math.sin(t * 1.4) * 0.22;
+
+    // ── Ownership change ──
+    this._flipCooldown -= dt;
+    const own = this.owner;
+    if (own !== this._lastOwner && this._flipCooldown <= 0) {
+      this._flipCooldown = 6;
+      const prev = this._lastOwner;
+      this._lastOwner = own;
+      if (own === 'player') {
+        showMiracleFlash(`${this.name} believes in you!`, '#ffd700');
+        chatLog(this.name, 'We have seen your works. We are yours! 🙏', '#ffd700');
+        spawnBurst(this.pos.clone().add(v3(0,3,0)), 0xffd700, 30, 9, 0.24, 1.8);
+        playReward();
+      } else if (own === 'rival') {
+        showMiracleFlash(`${this.name} has fallen to the rival!`, '#ff2244');
+        chatLog(this.name, 'You abandoned us. We serve another now. ⚔', '#ff6688');
+        spawnBurst(this.pos.clone().add(v3(0,3,0)), 0xaa0022, 30, 9, 0.24, 1.8);
+      } else if (prev === 'player') {
+        chatLog(this.name, 'Our faith in you wavers…', '#ccaa66');
+      }
+      updateTerritoryUI();
+      checkTerritoryVictory();
+    }
+  }
+}
+
+function buildOutposts() {
+  const placed = [];
+  for (let i = 0; i < 5; i++) {
+    let x = 0, z = 0, ok = false;
+    // Relax the constraints progressively so all five always find a home
+    for (let tries = 0; tries < 240 && !ok; tries++) {
+      const slack = tries / 240;               // 0 → strict, 1 → permissive
+      const a = (i / 5) * Math.PI * 2 + rand(-0.55, 0.55);
+      const r = rand(34, 76);
+      x = Math.cos(a) * r; z = Math.sin(a) * r;
+      const h = getTerrainHeight(x, z);
+      const p = new THREE.Vector3(x, 0, z);
+      ok = h > 1.6 && h < 14 &&
+           p.distanceTo(VILLAGE_POS) > lerp(32, 20, slack) &&
+           p.distanceTo(RIVAL_POS)   > lerp(28, 18, slack) &&
+           placed.every(q => q.distanceTo(p) > lerp(32, 19, slack));
+    }
+    if (!ok) continue;
+    placed.push(new THREE.Vector3(x, 0, z));
+    villages.push(new Outpost(x, z, OUTPOST_NAMES[i % OUTPOST_NAMES.length]));
+  }
+  updateTerritoryUI();
+}
+
+// Broadcast a belief nudge to every outpost near a world position.
+function influenceVillagesAt(pos, amount, radiusBonus = 0) {
+  for (const v of villages) {
+    if (pos.distanceTo(v.pos) < v.radius + radiusBonus) v.influence(amount);
+  }
+}
+
+function updateVillages(dt) {
+  if (!villages.length) return;
+  const t = clock.getElapsedTime();
+  for (const v of villages) v.update(dt, t);
+}
+
+function updateTerritoryUI() {
+  const el = document.getElementById('territory-count');
+  if (!el || !villages.length) return;
+  const mine  = villages.filter(v => v.owner === 'player').length;
+  const theirs= villages.filter(v => v.owner === 'rival').length;
+  el.innerHTML = `<span style="color:#ffd700">${mine}</span>` +
+                 `<span style="opacity:0.45"> / ${villages.length} · </span>` +
+                 `<span style="color:#ff6688">${theirs}</span>`;
+}
+
+function checkTerritoryVictory() {
+  if (_territoryEnded || !villages.length) return;
+  const mine   = villages.filter(v => v.owner === 'player').length;
+  const theirs = villages.filter(v => v.owner === 'rival').length;
+  if (mine === villages.length) {
+    _territoryEnded = true;
+    showEndBanner('THE ISLAND IS YOURS', 'Every village speaks your name.', '#ffd700');
+  } else if (theirs === villages.length) {
+    _territoryEnded = true;
+    showEndBanner('YOU ARE FORGOTTEN', 'The rival holds every village.', '#ff2244');
+  }
+}
+
+function showEndBanner(title, sub, color) {
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;' +
+    'justify-content:center;z-index:60;pointer-events:none;background:radial-gradient(ellipse at center,' +
+    'rgba(0,0,0,0.55),rgba(0,0,0,0.86));opacity:0;transition:opacity 1.4s;font-family:Georgia,serif;';
+  d.innerHTML =
+    `<div style="font-size:44px;letter-spacing:10px;color:${color};text-shadow:0 0 40px ${color};text-transform:uppercase">${title}</div>` +
+    `<div style="font-size:15px;letter-spacing:3px;color:rgba(255,255,255,0.65);margin-top:14px">${sub}</div>`;
+  document.body.appendChild(d);
+  requestAnimationFrame(() => { d.style.opacity = '1'; });
+  setTimeout(() => { d.style.opacity = '0'; setTimeout(()=>d.remove(), 1500); }, 7000);
 }
 
 // ─── Villagers ───────────────────────────────────────────────────────────────
@@ -1819,7 +2051,7 @@ function buildVillage() {
   const rGeo = new THREE.RingGeometry(influenceRadius - 0.4, influenceRadius + 0.4, 64);
   rGeo.rotateX(-Math.PI / 2);
   const rMat = new THREE.MeshBasicMaterial({
-    color: 0x4499ff, side: THREE.DoubleSide, transparent: true, opacity: 0.35,
+    color: 0x4499ff, side: THREE.DoubleSide, transparent: true, opacity: 0.07,
     blending: THREE.AdditiveBlending, depthWrite: false,
   });
   influenceRing = new THREE.Mesh(rGeo, rMat);
@@ -1888,6 +2120,12 @@ class CreatureAgent {
     this._eyeMats      = [];
     this._intelligenceAura = null;
     this._hasGLB       = false;
+    // ── Legibility state — see _setDesire / _narrate ──
+    this._desire       = { icon: '👁', text: 'watching you' };
+    this._lastAction   = 'watching you';
+    this._thoughtDiv   = null;
+    this._lessons      = [];
+    this._lastNarrate  = 0;
     this._levelNames   = ['Newborn', 'Curious', 'Learning', 'Capable', 'Transcendent',
                           'Coordinator', 'Strategist', 'Architect', 'Prophet', 'Omniscient'];
     this._buildMesh();
@@ -1908,6 +2146,7 @@ class CreatureAgent {
   _onLevelUp() {
     const name = this._levelNames[this.intelligenceLevel] || 'Omniscient';
     showMiracleFlash(`Creature: ${name}!`, '#aaffff');
+    this._narrate(`Something opened in my mind. I am ${name} now. 🧠`, '#aaffff', true);
     spawnBurst(this.group.position.clone().add(v3(0, 2.5, 0)), 0x44ffff, 35, 9, 0.22, 2.0);
     spawnBurst(this.group.position.clone().add(v3(0, 2.5, 0)), 0xffffff, 20, 6, 0.15, 1.5);
     if (this.intelligenceLevel >= 2) this._buildAura();
@@ -1933,18 +2172,26 @@ class CreatureAgent {
         this.traits.curiosity  = clamp(this.traits.curiosity+0.01,0,1);
         if(!this._fireballWitness) this._fireballWitness=0;
         this._fireballWitness++;
-        if(this._fireballWitness>=4) this._traumatized=true;
+        if(this._fireballWitness===2) this._narrate('Fire. You make fire. I am learning what it does. 🔥','#ff9966');
+        if(this._fireballWitness>=4){
+          this._traumatized=true;
+          if(!this._traumaSaid){ this._traumaSaid=true;
+            this._narrate('So much burning. I have seen too much of it. 😰','#ff7755',true); }
+        }
         break;
       case 'heal':
         this.traits.friendliness=clamp(this.traits.friendliness+0.04,0,1);
+        if(!this._loveHeal) this._narrate('You mend them. That feels good. I want to do that. 💚','#88ffaa',true);
         this._loveHeal=true;
         break;
       case 'food':
         this.traits.curiosity=clamp(this.traits.curiosity+0.02,0,1);
         this.traits.friendliness=clamp(this.traits.friendliness+0.01,0,1);
+        this._narrate('Food from nothing. How do you do that? 🍎','#ffcc88');
         break;
       case 'wood':
         this.traits.curiosity=clamp(this.traits.curiosity+0.015,0,1);
+        this._narrate('Wood. They build with it. I could carry it for them. 🪵','#ddbb88');
         break;
     }
   }
@@ -1953,28 +2200,57 @@ class CreatureAgent {
     if (!this.learnedMiracles.has(type)) {
       this.learnedMiracles.add(type);
       showMiracleFlash(`Creature learned ${type}!`, '#aaffaa');
+      this._narrate(`I have watched you enough times. I can cast ${type} myself now! ✨`, '#aaffaa', true);
       this.gainExperience(15);
     }
   }
 
+  // ── Legibility ───────────────────────────────────────────────────────────
+  // Traits are invisible numbers. A desire floating above its head, plus a
+  // spoken *reason* for every change, is what turns a stat block into a pet.
+  _setDesire(icon, text) {
+    if (this._desire.text === text) return;
+    this._desire     = { icon, text };
+    this._lastAction = text;
+  }
+
+  _narrate(text, color = '#8fe9ff', force = false) {
+    const now = performance.now() / 1000;
+    if (!force && now - this._lastNarrate < 2.5) return;  // throttle chat spam
+    this._lastNarrate = now;
+    chatLog('Creature', text, color);
+  }
+
+  _recordLesson(good, what) {
+    this._lessons.unshift({ good, what });
+    if (this._lessons.length > 8) this._lessons.pop();
+  }
+
   reward() {
+    const was = this._lastAction;
+    _tutTaught = true;
     this.traits.friendliness = clamp(this.traits.friendliness + 0.15, 0, 1);
     this.traits.aggression   = clamp(this.traits.aggression   - 0.08, 0, 1);
     this.traits.curiosity    = clamp(this.traits.curiosity    + 0.05, 0, 1);
     this._pulse(0xffee44); playReward();
     showMiracleFlash('Creature Rewarded ✦', '#ffd700');
-    { const rp=['"I will serve you well, great one! 🌟"','"Your kindness fills my heart!"','"I grow stronger with your blessing!"']; chatLog('Creature',rp[Math.floor(Math.random()*rp.length)],'#ffd700'); }
+    // Causal: it tells you exactly which behaviour you just reinforced.
+    this._recordLesson(true, was);
+    this._narrate(`You blessed me while I was ${was}. I will do more of that. ✦`, '#ffd700', true);
     changeAlignment(0.03);
     this.gainExperience(10);
     this._updateUI();
   }
 
   punish() {
+    const was = this._lastAction;
+    _tutTaught = true;
     this.traits.aggression   = clamp(this.traits.aggression   + 0.15, 0, 1);
     this.traits.friendliness = clamp(this.traits.friendliness - 0.08, 0, 1);
     this._pulse(0xff2200); playPunish();
     showMiracleFlash('Creature Punished', '#cc4444');
-    { const pp=['"I… I understand. I will do better. 😔"','"Please… I will obey."','"Forgive me, my god."']; chatLog('Creature',pp[Math.floor(Math.random()*pp.length)],'#cc8844'); }
+    this._recordLesson(false, was);
+    this._narrate(`You struck me while I was ${was}. I will not do that again… probably. 😔`, '#cc8844', true);
     changeAlignment(-0.03);
     this.gainExperience(3);
     this._updateUI();
@@ -2186,6 +2462,7 @@ class CreatureAgent {
 
     if (lvl === 0) {
       // Newborn: wander near the god hand, observe
+      this._setDesire('👁', 'watching you');
       return this._wanderNear(worldMouse, 30, 1.6, dt);
     }
 
@@ -2193,10 +2470,12 @@ class CreatureAgent {
       // Curious: investigate food piles, explore village
       const food = nearestFood(this.group.position);
       if (food && this.group.position.distanceTo(food.position) < 28) {
+        this._setDesire('🍎', 'sniffing at food');
         const moved = this._moveTo(food.position, 2.5, dt);
         if (this.group.position.distanceTo(food.position) < 2.5) this.gainExperience(2);
         return moved;
       }
+      this._setDesire('🐾', 'exploring');
       return this._wanderNear(VILLAGE_POS, 32, 2.0, dt);
     }
 
@@ -2211,8 +2490,12 @@ class CreatureAgent {
         castMiracleAt(chosen, tgt, false);
         this._pulse(0x88ffaa);
         showMiracleFlash(`Creature: ${chosen}`, '#88ffcc');
+        this._setDesire('✨', `casting ${chosen}`);
+        this._narrate(`Watch — I can do it too! ${chosen}! ✨`, '#88ffcc');
         this.gainExperience(7);
+        return true;
       }
+      this._setDesire('🌀', 'practising what you taught me');
       return this._wanderNear(VILLAGE_POS, 24, 2.2, dt);
     }
 
@@ -2222,6 +2505,7 @@ class CreatureAgent {
     // Alert overrides: rush toward threat, signal others
     if (this._alertTimer > 0) {
       this._alertTimer -= dt;
+      this._setDesire('⚠️', 'running toward danger');
       if (this._alertPos) this._moveTo(this._alertPos, 3.8, dt);
       this._pulse(0xff4400);
       return true;
@@ -2253,6 +2537,7 @@ class CreatureAgent {
         this._pulse(0x00ffff);
       }
       // Patrol tight circle around village, keeping watch
+      this._setDesire('🧭', 'organising the others');
       const a = this.age * 0.14;
       this.target.set(VILLAGE_POS.x + Math.cos(a) * 14, 0, VILLAGE_POS.z + Math.sin(a) * 14);
       return this._moveTo(this.target, 2.8, dt);
@@ -2262,8 +2547,10 @@ class CreatureAgent {
       // Respond to known threats, patrol perimeter
       const threat = SharedMind.threatLocations[0];
       if (threat) {
+        this._setDesire('🛡', 'hunting a threat');
         return this._moveTo(threat.pos, 4.0, dt);
       }
+      this._setDesire('🛡', 'standing guard');
       const a = this.age * 0.22;
       const pr = 22 + Math.sin(this.age * 0.08) * 5;
       this.target.set(VILLAGE_POS.x + Math.cos(a) * pr, 0, VILLAGE_POS.z + Math.sin(a) * pr);
@@ -2274,8 +2561,10 @@ class CreatureAgent {
       // Wide exploration; investigate known food for pack
       const knownFood = SharedMind.foodLocations[0];
       if (knownFood && this.group.position.distanceTo(knownFood) > 12) {
+        this._setDesire('🔍', 'investigating a find');
         return this._moveTo(knownFood, 3.2, dt);
       }
+      this._setDesire('🔍', 'scouting the island');
       this._wanderTimer -= dt;
       if (this.group.position.distanceTo(this.target) < 2.0 || this._wanderTimer <= 0) {
         const a = Math.random() * Math.PI * 2;
@@ -2289,6 +2578,7 @@ class CreatureAgent {
     if (this._carryLog) {
       if (!this._carryLog.parent) { this._carryLog = null; }
       else {
+        this._setDesire('🪵', 'hauling wood home');
         this._carryLog.position.copy(this.group.position).add(v3(0, 2.8, 0));
         this._moveTo(VILLAGE_POS, 2.8, dt);
         if (this.group.position.distanceTo(VILLAGE_POS) < 7) {
@@ -2818,6 +3108,40 @@ function updatePrayers(dt) {
   }
 }
 
+// ─── Creature thought bubbles ─────────────────────────────────────────────────
+// Projects each creature's desire to a floating label. This is the entire point
+// of the desire system: an invisible FSM state becomes a readable character.
+function updateCreatureThoughts() {
+  if (!renderer || !camera) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  for (const c of creatures) {
+    if (!c._thoughtDiv) {
+      const d = document.createElement('div');
+      d.className = 'creature-thought';
+      document.body.appendChild(d);
+      c._thoughtDiv = d;
+    }
+    const div  = c._thoughtDiv;
+    const html = `<b>${c._desire.icon}</b>${c._desire.text}`;
+    if (div._html !== html) { div.innerHTML = html; div._html = html; }
+
+    const sv = c.group.position.clone().add(v3(0, 5.4, 0)).project(camera);
+    const sx = (sv.x * 0.5 + 0.5) * rect.width  + rect.left;
+    const sy = (-sv.y * 0.5 + 0.5) * rect.height + rect.top;
+    if (sv.z < 1 && sx > -90 && sx < window.innerWidth + 90 && sy > -20 && sy < window.innerHeight) {
+      const bob = Math.sin(clock.getElapsedTime() * 1.6 + c.age) * 3;
+      div.style.left    = sx + 'px';
+      div.style.top     = (sy + bob) + 'px';
+      div.style.display = '';
+      // Fade with distance so a crowded island isn't a wall of labels
+      const d3 = camera.position.distanceTo(c.group.position);
+      div.style.opacity = clamp(1.3 - d3 / 155, 0.12, 1).toFixed(2);
+    } else {
+      div.style.display = 'none';
+    }
+  }
+}
+
 function checkPrayerAnswers(miracleType, pos) {
   for (let i=activePrayers.length-1;i>=0;i--) {
     const p = activePrayers[i];
@@ -2976,6 +3300,7 @@ const _COMBOS = {
 };
 
 function castMiracleAt(type, pos, fromPlayer = true) {
+  if (fromPlayer) _tutCast.add(type);
   // ── Combo detection ──────────────────────────────────────────────────────
   if (fromPlayer) {
     const now = performance.now() / 1000;
@@ -3047,6 +3372,7 @@ function castFireball(targetPos, fromPlayer) {
   ball.userData.type  = 'fireball';
   ball.userData.pos   = targetPos;
   projectiles.push(ball);
+  influenceVillagesAt(targetPos, -0.34, 10);   // burning them is not persuasion
   showMiracleFlash('Fireball!', '#ff4400');
 }
 
@@ -3064,6 +3390,7 @@ function castHeal(pos) {
       spawnBurst(v.mesh.position.clone().add(new THREE.Vector3(0,1,0)), 0x88ffaa, 5, 3, 0.15, 0.6);
     }
   }
+  influenceVillagesAt(pos, 0.30, 8);   // mercy wins hearts
   showMiracleFlash('Heal', '#44ff88');
 }
 
@@ -3078,6 +3405,7 @@ function spawnFood(pos) {
   food.userData.bites = 0;
   scene.add(food);
   foodPiles.push(food);
+  influenceVillagesAt(food.position, 0.18, 6);   // a fed village is a loyal village
   creatures.forEach(c => c.remember('food_appeared', food.position));
 }
 
@@ -3134,13 +3462,15 @@ function buildVillageBuildings() {
 }
 
 function buildHut(x, z, h) {
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0xc8c0ae, map: TEX.stone, roughness: 0.78, metalness: 0.01 });
-  const wall = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.2, 2.2, 8), wallMat);
+  // Flat colour, no canvas texture — photo-ish noise fights the low-poly read
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xd8cdb4, roughness: 0.86, metalness: 0, flatShading: true });
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.2, 2.2, 6), wallMat);
   wall.position.set(x, h + 1.1, z);
+  wall.rotation.y = Math.random() * Math.PI;
   wall.castShadow = true; wall.receiveShadow = true;
   scene.add(wall);
-  const roofMat = new THREE.MeshStandardMaterial({ color: 0xdcb040, map: TEX.thatch, roughness: 0.90, metalness: 0 });
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.85, 2.4, 8), roofMat);
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0xd9962f, roughness: 0.94, metalness: 0, flatShading: true });
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.85, 2.4, 6), roofMat);
   roof.position.set(x, h + 3.4, z);
   roof.rotation.y = Math.random() * 0.4;
   roof.castShadow = true; roof.receiveShadow = true;
@@ -3175,6 +3505,34 @@ function buildCampfire(x, z) {
   window._fireLights.push(fireLight);
 }
 
+// ─── Distant horizon islands ──────────────────────────────────────────────────
+// Pure set dressing: fog-faded silhouettes that give the composition depth so the
+// ocean doesn't read as a flat disc ending in nothing.
+function buildHorizonIslands() {
+  const N = 9;
+  for (let i = 0; i < N; i++) {
+    const a    = (i / N) * Math.PI * 2 + rand(-0.22, 0.22);
+    const dist = rand(255, 430);
+    const grp  = new THREE.Group();
+    const peaks = 2 + Math.floor(Math.random() * 3);
+    // Far islands read as pure silhouette — cool desaturated blue-green
+    const tint = new THREE.Color().setHSL(rand(0.42, 0.56), rand(0.20, 0.34), rand(0.26, 0.40));
+    const mat  = new THREE.MeshStandardMaterial({
+      color: tint, roughness: 1.0, metalness: 0, flatShading: true, fog: true,
+    });
+    for (let p = 0; p < peaks; p++) {
+      const r = rand(16, 42), hh = rand(14, 46);
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(r, hh, 5 + Math.floor(Math.random()*2)), mat);
+      cone.position.set(rand(-38, 38), hh * 0.5 - 3, rand(-22, 22));
+      cone.rotation.y = Math.random() * Math.PI;
+      grp.add(cone);
+    }
+    grp.position.set(Math.cos(a) * dist, 0, Math.sin(a) * dist);
+    grp.rotation.y = Math.random() * Math.PI;
+    scene.add(grp);
+  }
+}
+
 // ─── Clouds ───────────────────────────────────────────────────────────────────
 let clouds = [];
 
@@ -3193,7 +3551,7 @@ function buildClouds() {
       const t = j / (numPuffs - 1); // 0..1 across the cloud
       // Bigger puffs in the middle, smaller at ends — natural cumulus silhouette
       const mid  = 1.0 - Math.abs(t - 0.5) * 2.0;
-      const r    = rand(4, 7) + mid * rand(3, 6);
+      const r    = rand(3, 5) + mid * rand(2, 4);
       // IcosahedronGeometry detail=1 → 80 flat triangles → beautiful faceted cloud
       const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), cloudMat);
       puff.position.set((t - 0.5) * cw * 2 + rand(-2, 2), r * rand(0.15, 0.4), rand(-4, 4));
@@ -3201,9 +3559,11 @@ function buildClouds() {
       puff.rotation.y = Math.random() * Math.PI;
       grp.add(puff);
     }
+    // Well above the camera and further out — at the old y≈58-95 they sat at eye
+    // level and swallowed the frame as giant white slabs.
     const angle = Math.random() * Math.PI * 2;
-    const dist  = rand(45, 165);
-    const baseY = rand(58, 95);
+    const dist  = rand(90, 260);
+    const baseY = rand(125, 185);
     grp.position.set(Math.cos(angle)*dist, baseY, Math.sin(angle)*dist);
     grp.userData.speed = rand(0.5, 1.5);
     grp.userData.angle = angle;
@@ -3449,6 +3809,7 @@ function tryGrab() {
   }
   if (best) {
     grabbedObject = best;
+    _tutGrabbed = true;
     grabOffset.copy(best.position).sub(worldMouse);
     playGrab();
     if (best.userData.type === 'villager' && best.userData.agent) {
@@ -3880,7 +4241,7 @@ function initScene() {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0.42, 0.62, 0.88);
-  scene.fog = new THREE.FogExp2(0xb8d4f0, 0.0016);
+  scene.fog = new THREE.FogExp2(0xb8d4f0, 0.0021);  // fades the horizon islands into the sky
 
   camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.3, 800);
   camTarget = new THREE.Vector3(VILLAGE_POS.x, 0, VILLAGE_POS.z);
@@ -4065,19 +4426,22 @@ function initScene() {
   scene.add(sun);
   window._sun = sun;
 
-  const ambient = new THREE.AmbientLight(0x4466aa, 0.35);
+  // Shadow-side fill is deliberately BLUE. Warm key + cool shadow is the whole
+  // trick behind why stylised low-poly renders read as sculptural.
+  const ambient = new THREE.AmbientLight(0x3a5fa8, 0.30);
   scene.add(ambient);
   window._ambient = ambient;
 
-  // Hemisphere: cool sky from above, warm green bounce from the ground
-  const hemi = new THREE.HemisphereLight(0x9ecdf8, 0x5a7a38, 1.15);
+  // Hemisphere: blue sky from above, warm earth bounce from below
+  const hemi = new THREE.HemisphereLight(0x8ec4ff, 0x6b4a22, 0.92);
   scene.add(hemi);
   window._hemi = hemi;
 
-  // Soft cool fill from opposite direction (fake sky bounce)
-  const fill = new THREE.DirectionalLight(0x8ac8f8, 0.65);
-  fill.position.set(-60, 40, -80);
+  // Soft cool counter-fill opposite the key (fake sky bounce)
+  const fill = new THREE.DirectionalLight(0x6fa8ff, 0.62);
+  fill.position.set(-70, 55, -85);
   scene.add(fill);
+  window._fill = fill;
 
   // ── Bloom post-processing ─────────────────────────────────────────────────
   composer = null;
@@ -4105,37 +4469,53 @@ function initScene() {
   }
 }
 
-// ─── Day / Night cycle ────────────────────────────────────────────────────────
+// ─── Day / Night cycle — golden-hour biased ───────────────────────────────────
+// The sun never climbs above MAX_SUN_ELEV, so the island is permanently lit by a
+// low raking key. Long shadows are the single biggest reason flat-shaded geometry
+// reads as sculptural instead of flat — an overhead noon sun kills every facet.
+const MAX_SUN_ELEV = 0.58;   // radians ≈ 33° → shadows ~1.5× object height
+const SUN_ORBIT_R  = 175;
+
 function updateDayNight(dt) {
-  sunAngle += dt * (Math.PI * 2) / 200; // ~3.3-minute day
+  sunAngle += dt * (Math.PI * 2) / 260; // ~4.3-minute day
   if (sunAngle > Math.PI * 2) sunAngle -= Math.PI * 2;
 
-  // sunH: +1=noon, -1=midnight; horizT: peak at sunrise/sunset
+  // sunH: +1=peak, -1=deep night; horizT peaks at sunrise/sunset
   const sunH   = Math.sin(sunAngle - Math.PI * 0.5);
-  const horizT = clamp(1.0 - Math.abs(sunH) * 2.8, 0, 1);
+  const horizT = clamp(1.0 - Math.abs(sunH) * 2.2, 0, 1);
   _daylight    = clamp(sunH * 1.4 + 0.5, 0.05, 1.0);
 
-  // Sun position orbits overhead
-  const sunX = Math.cos(sunAngle) * 130;
-  const sunY = Math.max(8, sunH * 130);
-  const sunZ = Math.sin(sunAngle * 0.5 + 0.4) * 70 + 50;
+  // Spherical placement with a hard elevation cap — the sun never goes overhead.
+  const elev = sunH * MAX_SUN_ELEV;
+  const cosE = Math.cos(elev), sinE = Math.sin(elev);
+  const sunX = Math.cos(sunAngle) * SUN_ORBIT_R * cosE;
+  const sunY = SUN_ORBIT_R * sinE;
+  const sunZ = Math.sin(sunAngle) * SUN_ORBIT_R * cosE * 0.7 + 25;
 
   if (window._sun) {
-    window._sun.position.set(sunX, sunY, sunZ);
-    window._sun.intensity = Math.max(0.0, sunH) * 3.4;
-    // Warm noon → orange sunset → off at night
+    window._sun.position.set(sunX, Math.max(6, sunY), sunZ);
+    window._sun.intensity = Math.max(0.0, sunH) * 4.6;
+    // Golden key: deep amber at the horizon → warm cream at peak. Never neutral.
     window._sun.color.setRGB(
-      lerp(0.35, 1.0, _daylight) + horizT * 0.55,
-      lerp(0.12, 0.94, _daylight) + horizT * 0.10,
-      lerp(0.10, 0.80, _daylight) - horizT * 0.45
+      lerp(0.45, 1.00, _daylight),
+      lerp(0.20, 0.86, _daylight) - horizT * 0.16,
+      lerp(0.10, 0.62, _daylight) - horizT * 0.34
     );
     window._sun.shadow.needsUpdate = true;
   }
+  // Cool fill in shadow. Kept deliberately LOW — roughly a 3:1 key-to-fill ratio.
+  // Lift the fill much above this and the shadow side floods, the facets flatten,
+  // and the golden key stops sculpting anything.
   if (window._ambient) {
-    window._ambient.intensity = lerp(0.10, 0.40, _daylight);
-    window._ambient.color.setRGB(lerp(0.08,0.38,_daylight), lerp(0.12,0.52,_daylight), lerp(0.28,0.72,_daylight));
+    window._ambient.intensity = lerp(0.10, 0.18, _daylight);
+    window._ambient.color.setRGB(lerp(0.06,0.20,_daylight), lerp(0.10,0.32,_daylight), lerp(0.26,0.68,_daylight));
   }
-  if (window._hemi) window._hemi.intensity = lerp(0.12, 1.10, _daylight);
+  if (window._hemi) {
+    window._hemi.intensity = lerp(0.14, 0.55, _daylight);
+    window._hemi.color.setRGB(lerp(0.10,0.44,_daylight), lerp(0.16,0.62,_daylight), lerp(0.34,1.00,_daylight));
+    window._hemi.groundColor.setRGB(0.28 + horizT*0.24, 0.24, 0.13);
+  }
+  if (window._fill) window._fill.intensity = lerp(0.14, 0.38, _daylight);
 
   const aT = (alignment + 1) / 2; // alignment: 0=evil 1=good
 
@@ -4489,49 +4869,152 @@ function initRivalGod() {
   rivalGod = new RivalGod();
 }
 
-// ─── Tutorial fade ─────────────────────────────────────────────────────────────
-function initTutorial() {
-  const tut = document.getElementById('tutorial');
-  if (!tut) return;
+// ─── Gated tutorial + progressive HUD disclosure ──────────────────────────────
+// Players bounced because they opened the game to six HUD panels and nothing
+// causal happened. Every step here waits for the player to actually DO the thing
+// (with a timeout fallback so nobody gets stuck), and panels only appear at the
+// moment they start meaning something.
+let _tutStep = 0, _tutTimer = 0, _tutActive = true, _tutShown = false, _tutStepStart = 0;
+let _tutCast = new Set(), _tutGrabbed = false, _tutTaught = false;
+let _tutMouseAccum = 0, _tutLastMouse = null;
 
-  // Step 1 — title screen
-  tut.innerHTML = `<h1>Black &amp; White</h1><p style="font-size:16px;letter-spacing:2px;margin-top:8px;">You are a God. Shape the world.</p>`;
-  tut.style.opacity = '1';
+const HIDDEN_AT_START = [
+  'creature-panel', 'faith-bar', 'resource-panel', 'civ-panel', 'minimap',
+  'controls', 'align-bar', 'chat-toggle', 'miracle-grid', 'creature-btns',
+  'draw-btn', 'objective-panel',
+];
 
-  // Auto-sequence of hints
-  const hints = [
-    [4000,  `<h1 style="font-size:28px">Your Village Awaits</h1><p>Move your hand · Click &amp; drag to pick up objects</p>`],
-    [7000,  `<h1 style="font-size:26px">Cast Miracles</h1><p>Press <b>1</b>=Fireball &nbsp; <b>2</b>=Food &nbsp; <b>3</b>=Heal &nbsp; <b>4</b>=Wood</p>`],
-    [10500, `<h1 style="font-size:26px">A Rival Stirs…</h1><p style="color:#ff8888">Another god watches from the shadows</p>`],
-    [13500, null],  // fade out
-  ];
+function hidePanel(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.dataset.hidden = '1';
+  el.style.transition = 'opacity 0.9s';
+  el.style.opacity = '0';
+  el.style.pointerEvents = 'none';
+}
 
-  hints.forEach(([delay, html]) => {
-    setTimeout(()=>{
-      if (html) {
-        tut.innerHTML = html;
-        tut.style.transition = 'opacity 0.6s';
-        tut.style.opacity = '1';
-      } else {
-        tut.style.transition = 'opacity 1.5s';
-        tut.style.opacity = '0';
+function revealPanel(id) {
+  const el = document.getElementById(id);
+  if (!el || !el.dataset.hidden) return;
+  delete el.dataset.hidden;
+  el.style.opacity = '1';
+  // Restore interactivity only for the panels that need it
+  if (['miracle-grid','creature-btns','draw-btn','chat-toggle'].includes(id)) {
+    el.style.pointerEvents = 'auto';
+  }
+}
+
+const TUTORIAL_STEPS = [
+  {
+    html: `<h1>Black &amp; White</h1><p style="font-size:15px;letter-spacing:3px;margin-top:10px;">You are a god. This island is yours to keep or lose.</p>`,
+    timeout: 4.0,
+  },
+  {
+    html: `<h1 style="font-size:26px">Your Hand</h1><p>Move it across the land</p>`,
+    done: () => _tutMouseAccum > 45,
+    timeout: 10,
+  },
+  {
+    html: `<h1 style="font-size:26px">Reach Down</h1><p>Click and hold to pick one of them up</p>`,
+    done: () => _tutGrabbed,
+    timeout: 22,
+  },
+  {
+    html: `<h1 style="font-size:24px">They Hunger</h1><p>Press <b style="color:#ffd700">2</b> to conjure food</p>`,
+    done: () => _tutCast.has('food'),
+    timeout: 30,
+    onEnter: () => revealPanel('miracle-grid'),
+  },
+  {
+    html: `<h1 style="font-size:24px">Your Creature</h1><p>It watches everything you do &mdash; and copies it</p>`,
+    timeout: 6.5,
+    onEnter: () => {
+      revealPanel('creature-panel');
+      if (creatures[0]) creatures[0]._narrate('I am here. I am watching you. 👁', '#8fe9ff', true);
+    },
+  },
+  {
+    html: `<h1 style="font-size:24px">Teach It</h1><p><b style="color:#ffd700">R</b> to reward &nbsp;·&nbsp; <b style="color:#ff6666">P</b> to punish</p>`,
+    done: () => _tutTaught,
+    timeout: 28,
+    onEnter: () => revealPanel('creature-btns'),
+  },
+  {
+    html: `<h1 style="font-size:23px">The Other Villages</h1><p>They follow whoever feeds them &mdash; <b style="color:#ffd700">gold</b> pillars are yours</p>`,
+    timeout: 8,
+    onEnter: () => { revealPanel('civ-panel'); revealPanel('faith-bar'); revealPanel('align-bar'); },
+  },
+  {
+    html: `<h1 style="font-size:23px;color:#ff8899">A Rival God</h1><p>He wants them all. Take every village to win.</p>`,
+    timeout: 7,
+    onEnter: () => {
+      ['minimap','controls','resource-panel','chat-toggle','draw-btn','objective-panel','rival-panel']
+        .forEach(revealPanel);
+      if (rivalGod && !rivalGod.defeated) {
+        showMiracleFlash('⚔ Rival God: "Your people will be MINE!"', '#ff4466');
+        chatLog('Rival God','⚔ "Your people will be MINE. I can feel their doubt already."','#ff4466');
+        spawnBurst(new THREE.Vector3(RIVAL_POS.x,getTerrainHeight(RIVAL_POS.x,RIVAL_POS.z)+5,RIVAL_POS.z), 0xaa0022, 30, 10, 0.3, 2.5);
+        playTone(60,'sawtooth',1.2,0.2);
+        shakeCamera(1.0);
       }
-    }, delay);
-  });
+    },
+  },
+];
 
-  // Rival taunts soon after game start
-  setTimeout(()=>{
-    if (rivalGod && !rivalGod.defeated) {
-      showMiracleFlash('⚔ Rival God: "Your people will be MINE!"', '#ff4466');
-      chatLog('Rival God','⚔ "Your people will be MINE. I can feel their doubt already. You are no god — you are an insect."','#ff4466');
-      spawnBurst(new THREE.Vector3(RIVAL_POS.x,getTerrainHeight(RIVAL_POS.x,RIVAL_POS.z)+5,RIVAL_POS.z), 0xaa0022, 30, 10, 0.3, 2.5);
-      playTone(60,'sawtooth',1.2,0.2);
-      shakeCamera(1.0);
+function initTutorial() {
+  HIDDEN_AT_START.forEach(hidePanel);
+  const rp = document.getElementById('rival-panel');
+  if (rp) hidePanel('rival-panel');
+  _tutStep = 0; _tutTimer = 0; _tutActive = true; _tutShown = false;
+  // Rival holds off until the player has been introduced to him
+  if (rivalGod) rivalGod.attackTimer = 9999;
+}
+
+function updateTutorial(dt) {
+  if (!_tutActive) return;
+  const tut = document.getElementById('tutorial');
+  if (!tut) { _tutActive = false; return; }
+
+  // Track how far the god hand has actually travelled
+  if (_tutLastMouse) _tutMouseAccum += worldMouse.distanceTo(_tutLastMouse);
+  else _tutLastMouse = new THREE.Vector3();
+  _tutLastMouse.copy(worldMouse);
+
+  const step = TUTORIAL_STEPS[_tutStep];
+  if (!step) {
+    _tutActive = false;
+    tut.style.transition = 'opacity 1.5s';
+    tut.style.opacity = '0';
+    if (rivalGod) rivalGod.attackTimer = rand(22, 34);
+    return;
+  }
+
+  // Entering a step
+  if (!_tutShown) {
+    _tutShown = true;
+    _tutStepStart = performance.now() / 1000;
+    tut.innerHTML = step.html;
+    tut.style.transition = 'opacity 0.6s';
+    tut.style.opacity = '1';
+    if (step.onEnter) step.onEnter();
+  }
+
+  // Wall clock, not accumulated dt. The loop clamps dt to 0.05, so on a machine
+  // rendering at 15fps the tutorial would advance at a quarter speed and a slow
+  // device could sit on the title card for a minute.
+  _tutTimer = performance.now() / 1000 - _tutStepStart;
+  // A gated step needs a minimum beat on screen so it can actually be read
+  const satisfied = step.done ? (step.done() && _tutTimer > 1.2) : _tutTimer >= step.timeout;
+  const expired   = _tutTimer >= (step.timeout || 999);
+  if (satisfied || expired) {
+    _tutStep++;
+    _tutShown = false;
+    if (step.done && satisfied && !expired) {
+      // Acknowledge that the player did the thing
+      tut.style.opacity = '0';
+      playTone(660, 'sine', 0.25, 0.08);
     }
-  }, 12000);
-
-  // First rival attack faster — 20-30s instead of 50-80s
-  if (rivalGod) rivalGod.attackTimer = rand(18, 28);
+  }
 }
 
 // ─── Mini-map ─────────────────────────────────────────────────────────────────
@@ -4781,6 +5264,11 @@ function gameLoop() {
   if (waterMesh) {
     waterMesh.material.uniforms.uTime.value = elapsed;
     waterMesh.material.uniforms.uAlignment.value = alignment;
+    // Keep the water's specular locked to the real sun so it tracks golden hour
+    if (window._sun) {
+      waterMesh.material.uniforms.uSunDir.value.copy(window._sun.position).normalize();
+      waterMesh.material.uniforms.uSunCol.value.copy(window._sun.color);
+    }
   }
   // Sky + post-process time uniforms
   if (window._skyMat) window._skyMat.uniforms.uTime.value = elapsed;
@@ -4856,6 +5344,12 @@ function gameLoop() {
   updateWeather(dt);
   // Prayers
   updatePrayers(dt);
+  // Creature desire bubbles
+  updateCreatureThoughts();
+  // Village belief / territory control
+  updateVillages(dt);
+  // Gated onboarding
+  updateTutorial(dt);
   // Mini-map
   updateMinimap(dt);
   // Rival god
@@ -4891,7 +5385,6 @@ function gameLoop() {
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 function init() {
-  setLoadProgress(5,  'Textures…');   initTextures();
   setLoadProgress(10, 'Materials…');  initBlockMats();
   setLoadProgress(15, 'Scene…');      initScene();
   setLoadProgress(25, 'Terrain…');    buildTerrain();
@@ -4899,8 +5392,10 @@ function init() {
   setLoadProgress(46, 'Trees…');      buildTrees();
   setLoadProgress(52, 'Grass…');      buildGrass();
   setLoadProgress(55, 'Hand…');       buildHand();
+  setLoadProgress(58, 'Horizon…');    buildHorizonIslands();
   setLoadProgress(60, 'Village…');    buildVillage();
   setLoadProgress(65, 'Buildings…');  buildVillageBuildings();
+  setLoadProgress(68, 'Outposts…');   buildOutposts();
   setLoadProgress(70, 'Clouds…');     buildClouds();
   setLoadProgress(74, 'Creature…');   spawnCreature(VILLAGE_POS.x + 25, VILLAGE_POS.z + 5);
   setLoadProgress(78, 'Models…');     loadModels();
